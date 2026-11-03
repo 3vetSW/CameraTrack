@@ -1,0 +1,21 @@
+# Build output
+target/
+
+# Local dependency cache / bundled Maven
+.m2repo/
+.tools/
+
+# Local test servers (Paper world/region data)
+.verify*/
+.srv/
+.testserver*/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS / logs
+.DS_Store
+*.log
+docs/

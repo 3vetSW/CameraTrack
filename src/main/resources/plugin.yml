@@ -1,0 +1,23 @@
+name: CameraTrack
+version: '1.9.0'
+main: dev.cameratrack.CameraTrackPlugin
+api-version: '26.3'
+description: 自定义摄像轨道 —— 用指令铺设镜头节点，自动平滑连接，并在游戏中播放开场动画级别的运镜。
+authors: [DSH]
+
+commands:
+  camera:
+    description: 创建、编辑并播放自定义摄像轨道
+    usage: /camera help
+    aliases: [camtrack, ctrack]
+
+permissions:
+  cameratrack.admin:
+    description: 允许创建、编辑摄像轨道
+    default: op
+  cameratrack.play:
+    description: 允许播放/停止摄像轨道（默认仅 op；其他插件可单独授予）
+    default: op
+
+
+

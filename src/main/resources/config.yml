@@ -1,0 +1,19 @@
+# CameraTrack 配置文件
+
+# 语言: zh_cn / en_us / auto（auto = 跟随玩家客户端语言，找不到时回退 zh_cn）
+# 翻译文件位于 plugins/CameraTrack/lang/<locale>.json（MiniMessage 格式）
+language: zh_cn
+
+# 默认播放模式:
+#   entity   - 生成不可见的镜头实体，玩家旁观它，客户端对实体移动做插值（推荐，最平滑）
+#   teleport - 逐 tick 直接传送玩家（旧模式，作为兼容/对照）
+# 单次播放可用 /camera play <名称> --tp 或 --entity 临时覆盖。
+playback-mode: entity
+
+path:
+  # 自动路径模式的“同平面”判定容差（格）。
+  # 相邻两个节点在 X / Y / Z 任意一个轴上的差值不超过该值时，认为这一段位于同一平面，
+  # 改用直线插值（只有朝向变化），而不是让样条把镜头鼓出平面。
+  # 设为 0 表示只接受坐标完全相同（仍保留 1e-6 的浮点容差）。
+  # 如果你做的是等高环绕镜头（所有节点同高、绕圈），把相应节点的 path 设为 curve。
+  axis-tolerance: 0.05
