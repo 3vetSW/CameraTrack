@@ -4,10 +4,11 @@ import dev.cameratrack.CameraTrackPlugin;
 import dev.cameratrack.lang.Lang;
 import dev.cameratrack.playback.PlaybackManager;
 import dev.cameratrack.playback.PlaybackMode;
-import dev.cameratrack.playback.PreviewRenderer;
+import dev.cameratrack.text.TextComponents;
 import dev.cameratrack.track.CameraNode;
 import dev.cameratrack.track.CameraTrack;
 import dev.cameratrack.track.Ease;
+import dev.cameratrack.track.NodeTitle;
 import dev.cameratrack.track.PathMode;
 import dev.cameratrack.track.TrackStore;
 import net.kyori.adventure.text.Component;
@@ -395,6 +396,15 @@ public final class CameraCommand implements TabExecutor {
             if (!node.command().isBlank()) {
                 line = line.append(this.lang.component(sender, "nodes.command", "command", node.command()));
             }
+            NodeTitle title = node.title();
+            if (title != null && !title.isEmpty()) {
+                if (!title.text().isBlank()) {
+                    line = line.append(this.lang.component(sender, "nodes.title", "title", shorten(title.text())));
+                }
+                if (!title.subtitle().isBlank()) {
+                    line = line.append(this.lang.component(sender, "nodes.subtitle", "subtitle", shorten(title.subtitle())));
+                }
+            }
             sender.sendMessage(line);
         }
     }
@@ -454,7 +464,7 @@ public final class CameraCommand implements TabExecutor {
         }
         CameraNode node = track.get(index);
         String field = args[3].toLowerCase(Locale.ROOT);
-        String value = String.join(" ", Arrays.copyOfRange(args, 4, args.length)).trim();
+        String value = unquote(String.join(" ", Arrays.copyOfRange(args, 4, args.length)).trim());
         CameraNode updated;
         switch (field) {
             case "duration" -> {
@@ -502,6 +512,49 @@ public final class CameraCommand implements TabExecutor {
                 updated = node.withRotation(node.yaw(), (float) Math.max(-90.0D, Math.min(90.0D, parsed)));
             }
             case "command" -> updated = node.withCommand(value);
+            case "title" -> {
+                if (value.equalsIgnoreCase("clear")) {
+                    updated = node.withTitle(node.title().withText(""));
+                } else {
+                    if (!TextComponents.isValid(value, playerName(sender))) {
+                        this.lang.send(sender, "title.invalid", "value", value);
+                        return;
+                    }
+                    updated = node.withTitle(node.title().withText(value));
+                }
+            }
+            case "subtitle" -> {
+                if (value.equalsIgnoreCase("clear")) {
+                    updated = node.withTitle(node.title().withSubtitle(""));
+                } else {
+                    if (!TextComponents.isValid(value, playerName(sender))) {
+                        this.lang.send(sender, "title.invalid", "value", value);
+                        return;
+                    }
+                    updated = node.withTitle(node.title().withSubtitle(value));
+                }
+            }
+            case "title-fade-in" -> {
+                Double parsed = titleSeconds(sender, value);
+                if (parsed == null) {
+                    return;
+                }
+                updated = node.withTitle(node.title().withFadeIn(parsed));
+            }
+            case "title-stay" -> {
+                Double parsed = titleSeconds(sender, value);
+                if (parsed == null) {
+                    return;
+                }
+                updated = node.withTitle(node.title().withStay(parsed));
+            }
+            case "title-fade-out" -> {
+                Double parsed = titleSeconds(sender, value);
+                if (parsed == null) {
+                    return;
+                }
+                updated = node.withTitle(node.title().withFadeOut(parsed));
+            }
             case "path" -> {
                 PathMode pathMode = PathMode.byId(value, null);
                 if (pathMode == null) {
@@ -646,8 +699,10 @@ public final class CameraCommand implements TabExecutor {
             this.lang.send(sender, "preview.world-missing");
             return;
         }
-        int limit = PreviewRenderer.render(world, track, this.plugin.axisTolerance(), track.flow());
-        this.lang.send(sender, "preview.success", "count", limit);
+        int limit = this.plugin.preview().render(sender instanceof Player player ? player : null, world, track);
+        this.lang.send(sender, "preview.success",
+                "count", limit,
+                "seconds", formatSeconds(this.plugin.previewSettings().durationSeconds()));
     }
 
     // ------------------------------------------------------------------ 工具
@@ -747,6 +802,49 @@ public final class CameraCommand implements TabExecutor {
         }
     }
 
+    /** 标题三个时间参数的校验：0 - 600 秒。 */
+    private Double titleSeconds(CommandSender sender, String raw) {
+        Double parsed = number(sender, raw);
+        if (parsed == null) {
+            return null;
+        }
+        if (parsed < 0.0D || parsed > NodeTitle.MAX_SECONDS) {
+            this.lang.send(sender, "title.range");
+            return null;
+        }
+        return parsed;
+    }
+
+    /** 控制台执行时没有玩家名，{@code <player>} 占位符保持原样。 */
+    private static String playerName(CommandSender sender) {
+        return sender instanceof Player player ? player.getName() : null;
+    }
+
+    /**
+     * 去掉玩家为了包含空格而写在两端的引号。
+     *
+     * <p>Bukkit 的旧式指令参数不会自动去掉引号，{@code set ... command "playsound ..."}
+     * 会把引号一起存进数据；这里统一剥掉一层成对引号，让文档里的写法真正可用。</p>
+     */
+    private static String unquote(String value) {
+        if (value.length() >= 2) {
+            char first = value.charAt(0);
+            char last = value.charAt(value.length() - 1);
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+                return value.substring(1, value.length() - 1);
+            }
+        }
+        return value;
+    }
+
+    /** 节点列表里展示标题时截断，避免一条记录占满聊天栏。 */
+    private static String shorten(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.length() <= 48 ? value : value.substring(0, 48) + "…";
+    }
+
     private Component onOff(CommandSender sender, boolean value) {
         return this.lang.component(sender, value ? "common.on" : "common.off");
     }
@@ -765,6 +863,10 @@ public final class CameraCommand implements TabExecutor {
 
     private static String format(double value) {
         return String.format(Locale.ROOT, "%.2f", value);
+    }
+
+    private static String formatSeconds(double value) {
+        return String.format(Locale.ROOT, "%.1f", value);
     }
 
     // ------------------------------------------------------------------ 补全
@@ -800,7 +902,8 @@ public final class CameraCommand implements TabExecutor {
         }
 
         if (args.length == 4 && sub.equals("set")) {
-            return filter(List.of("duration", "hold", "ease", "yaw", "pitch", "path", "command"), args[3]);
+            return filter(List.of("duration", "hold", "ease", "yaw", "pitch", "path", "command",
+                    "title", "subtitle", "title-fade-in", "title-stay", "title-fade-out"), args[3]);
         }
         if (args.length == 5 && sub.equals("set")) {
             String field = args[3].toLowerCase(Locale.ROOT);
@@ -818,7 +921,10 @@ public final class CameraCommand implements TabExecutor {
                 }
                 return filter(ids, args[4]);
             }
-            if (field.equals("command")) {
+            if (field.equals("title-fade-in") || field.equals("title-stay") || field.equals("title-fade-out")) {
+                return filter(List.of("0", "0.5", "1.0", "2.0", "3.5"), args[4]);
+            }
+            if (field.equals("command") || field.equals("title") || field.equals("subtitle")) {
                 return List.of();
             }
         }

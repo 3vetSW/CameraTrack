@@ -3,9 +3,11 @@ package dev.cameratrack.ui;
 import dev.cameratrack.CameraTrackPlugin;
 import dev.cameratrack.lang.Lang;
 import dev.cameratrack.playback.PlaybackManager;
+import dev.cameratrack.text.TextComponents;
 import dev.cameratrack.track.CameraNode;
 import dev.cameratrack.track.CameraTrack;
 import dev.cameratrack.track.Ease;
+import dev.cameratrack.track.NodeTitle;
 import dev.cameratrack.track.PathMode;
 import dev.cameratrack.track.TrackStore;
 import io.papermc.paper.dialog.Dialog;
@@ -19,7 +21,6 @@ import io.papermc.paper.registry.data.dialog.input.SingleOptionDialogInput;
 import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -33,11 +34,16 @@ import java.util.List;
  *
  * <p>dialog 本身不能就地刷新，所以这里用“点按钮 → 回调里重新打开一个新 dialog”的方式做导航：
  * 轨道列表 → 轨道详情（节点按钮）→ 节点详情（输入框 + 保存/传送/更新视角/删除）。</p>
+ *
+ * <p>界面上的所有文案（标题、按钮、说明、输入标签、报错）都来自 {@link Lang} 的 {@code gui.*} 键，
+ * 随 {@code config.yml} 的 {@code language} 设置切换；文本值本身是 MiniMessage。</p>
  */
 public final class CameraDialogs {
 
     private static final int MAX_NODE_BUTTONS = 45;
     private static final float MAX_SECONDS = 600.0F;
+    private static final int TITLE_TEXT_LENGTH = 512;
+    private static final int SUBTITLE_TEXT_LENGTH = 256;
 
     private final CameraTrackPlugin plugin;
     private final TrackStore store;
@@ -61,24 +67,24 @@ public final class CameraDialogs {
                 continue;
             }
             buttons.add(button(
-                    Component.text(name + "  (" + track.size() + " 节点)", NamedTextColor.YELLOW),
-                    Component.text("编辑轨道 " + name),
+                    text(player, "gui.main.entry", "name", name, "nodes", track.size()),
+                    text(player, "gui.main.entry.tooltip", "name", name),
                     view -> later(player, () -> openTrack(player, name))));
         }
         if (buttons.isEmpty()) {
-            buttons.add(closeButton());
+            buttons.add(closeButton(player));
         }
-        buttons.add(button(Component.text("+ 新建轨道", NamedTextColor.GREEN),
-                Component.text("输入名称创建一条新轨道"),
+        buttons.add(button(text(player, "gui.main.new"),
+                text(player, "gui.main.new.tooltip"),
                 view -> later(player, () -> openCreate(player))));
         if (buttons.size() > 1) {
-            buttons.add(closeButton());
+            buttons.add(closeButton(player));
         }
 
         List<DialogBody> body = List.of(
-                body("共 " + this.store.tracks().size() + " 条轨道。选择一条轨道编辑，或新建一条。"),
-                body("提示：轨道界面里可以直接添加节点、播放、切换循环；节点界面可以改停留/飞行/缓动/路径/命令。"));
-        show(player, dialog(Component.text("CameraTrack 轨道管理", NamedTextColor.GOLD), body, List.of(), buttons, 2));
+                body(player, "gui.main.body.count", "count", this.store.tracks().size()),
+                body(player, "gui.main.body.hint"));
+        show(player, dialog(text(player, "gui.main.title"), body, List.of(), buttons, 2));
     }
 
     // ------------------------------------------------------------------ 轨道详情
@@ -97,23 +103,24 @@ public final class CameraDialogs {
             CameraNode node = track.get(i);
             int index = i;
             buttons.add(button(
-                    Component.text("#" + (i + 1) + "  " + format(node.x()) + ", " + format(node.y()) + ", " + format(node.z()),
-                            NamedTextColor.AQUA),
-                    Component.text("点击编辑节点 #" + (i + 1)),
+                    text(player, "gui.track.node",
+                            "index", i + 1,
+                            "x", format(node.x()), "y", format(node.y()), "z", format(node.z())),
+                    text(player, "gui.track.node.tooltip", "index", i + 1),
                     view -> later(player, () -> openNode(player, name, index))));
         }
-        buttons.add(button(Component.text("+ 添加节点（当前位置）", NamedTextColor.GREEN),
-                Component.text("把你当前眼睛所在的位置和朝向记录为新节点"),
+        buttons.add(button(text(player, "gui.track.add"),
+                text(player, "gui.track.add.tooltip"),
                 view -> {
                     addNodeAtPlayer(player, name);
                     later(player, () -> openTrack(player, name));
                 }));
-        buttons.add(button(Component.text("播放轨道", NamedTextColor.GREEN),
-                Component.text("立即开始播放这条轨道"),
+        buttons.add(button(text(player, "gui.track.play"),
+                text(player, "gui.track.play.tooltip"),
                 view -> later(player, () -> play(player, name))));
         buttons.add(button(
-                Component.text("循环: " + (track.loop() ? "开" : "关"), NamedTextColor.YELLOW),
-                Component.text("切换这条轨道的默认循环状态"),
+                text(player, "gui.track.loop", "value", onOff(player, track.loop())),
+                text(player, "gui.track.loop.tooltip"),
                 view -> {
                     CameraTrack current = this.store.get(name);
                     if (current != null) {
@@ -123,8 +130,8 @@ public final class CameraDialogs {
                     later(player, () -> openTrack(player, name));
                 }));
         buttons.add(button(
-                Component.text("平滑巡航: " + (track.flow() ? "开" : "关"), NamedTextColor.YELLOW),
-                Component.text("开：节点之间连续通过，转动更顺；关：逐段缓动"),
+                text(player, "gui.track.flow", "value", onOff(player, track.flow())),
+                text(player, "gui.track.flow.tooltip"),
                 view -> {
                     CameraTrack current = this.store.get(name);
                     if (current != null) {
@@ -134,8 +141,8 @@ public final class CameraDialogs {
                     later(player, () -> openTrack(player, name));
                 }));
         buttons.add(button(
-                Component.text("结束后返回起点: " + (track.returnToStart() ? "开" : "关"), NamedTextColor.YELLOW),
-                Component.text("开：播完回到原位置；关：播完停在终点"),
+                text(player, "gui.track.return", "value", onOff(player, track.returnToStart())),
+                text(player, "gui.track.return.tooltip"),
                 view -> {
                     CameraTrack current = this.store.get(name);
                     if (current != null) {
@@ -144,25 +151,28 @@ public final class CameraDialogs {
                     }
                     later(player, () -> openTrack(player, name));
                 }));
-        buttons.add(button(Component.text("删除轨道", NamedTextColor.RED),
-                Component.text("删除整条轨道（需确认）"),
+        buttons.add(button(text(player, "gui.track.delete"),
+                text(player, "gui.track.delete.tooltip"),
                 view -> later(player, () -> confirmDeleteTrack(player, name))));
-        buttons.add(button(Component.text("← 返回", NamedTextColor.GRAY),
-                Component.text("回到轨道列表"),
+        buttons.add(button(text(player, "gui.track.back"),
+                text(player, "gui.track.back.tooltip"),
                 view -> later(player, () -> openMain(player))));
 
         List<DialogBody> body = new ArrayList<>();
-        body.add(body("节点数 " + track.size() + " · 总时长 " + format(track.totalDuration()) + "s · 默认循环 "
-                + (track.loop() ? "开" : "关") + " · 平滑巡航 " + (track.flow() ? "开" : "关")
-                + " · 结束后返回 " + (track.returnToStart() ? "开" : "关")));
+        body.add(body(player, "gui.track.body.summary",
+                "nodes", track.size(),
+                "duration", format(track.totalDuration()),
+                "loop", onOff(player, track.loop()),
+                "flow", onOff(player, track.flow()),
+                "return", onOff(player, track.returnToStart())));
         if (track.size() == 0) {
-            body.add(body("还没有节点：点下面的“添加节点”把当前位置记成第一个镜头。"));
+            body.add(body(player, "gui.track.body.empty"));
         } else if (track.size() > shown) {
-            body.add(body("节点过多，仅显示前 " + shown + " 个；其余请用指令编辑。"));
+            body.add(body(player, "gui.track.body.too-many", "shown", shown));
         }
-        body.add(body("同平面（任一轴坐标相同）的相邻节点会自动走直线，其余走样条。"));
+        body.add(body(player, "gui.track.body.path-note"));
 
-        show(player, dialog(Component.text("轨道: " + name, NamedTextColor.GOLD), body, List.of(), buttons, 1));
+        show(player, dialog(text(player, "gui.track.title", "name", name), body, List.of(), buttons, 1));
     }
 
     // ------------------------------------------------------------------ 节点详情
@@ -174,75 +184,106 @@ public final class CameraDialogs {
             return;
         }
         CameraNode node = track.get(index);
+        NodeTitle title = node.title();
         String name = track.name();
 
         List<DialogInput> inputs = List.of(
-                DialogInput.text("duration", Component.text("飞往下一节点（秒，可填小数）", NamedTextColor.GRAY))
+                DialogInput.text("duration", text(player, "gui.node.input.duration"))
                         .initial(String.valueOf(node.duration()))
                         .maxLength(12)
                         .width(320)
                         .build(),
-                DialogInput.text("hold", Component.text("到达后停留（秒，可填小数）", NamedTextColor.GRAY))
+                DialogInput.text("hold", text(player, "gui.node.input.hold"))
                         .initial(String.valueOf(node.hold()))
                         .maxLength(12)
                         .width(320)
                         .build(),
-                DialogInput.singleOption("ease", Component.text("缓动曲线", NamedTextColor.GRAY), easeOptions(node.ease()))
+                DialogInput.singleOption("ease", text(player, "gui.node.input.ease"), easeOptions(node.ease()))
                         .width(320)
                         .build(),
-                DialogInput.singleOption("path", Component.text("路径模式", NamedTextColor.GRAY), pathOptions(node.path()))
+                DialogInput.singleOption("path", text(player, "gui.node.input.path"), pathOptions(node.path()))
                         .width(320)
                         .build(),
-                DialogInput.text("command", Component.text("到达时执行的命令（可留空）", NamedTextColor.GRAY))
-                        .initial(node.command().length() > 256 ? node.command().substring(0, 256) : node.command())
+                DialogInput.text("command", text(player, "gui.node.input.command"))
+                        .initial(truncate(node.command(), 256))
                         .maxLength(256)
                         .width(320)
+                        .build(),
+                DialogInput.text("title", text(player, "gui.node.input.title"))
+                        .initial(truncate(title.text(), TITLE_TEXT_LENGTH))
+                        .maxLength(TITLE_TEXT_LENGTH)
+                        .width(320)
+                        .build(),
+                DialogInput.text("subtitle", text(player, "gui.node.input.subtitle"))
+                        .initial(truncate(title.subtitle(), SUBTITLE_TEXT_LENGTH))
+                        .maxLength(SUBTITLE_TEXT_LENGTH)
+                        .width(320)
+                        .build(),
+                DialogInput.text("title_fade_in", text(player, "gui.node.input.fade-in"))
+                        .initial(String.valueOf(title.fadeIn()))
+                        .maxLength(12)
+                        .width(160)
+                        .build(),
+                DialogInput.text("title_stay", text(player, "gui.node.input.stay"))
+                        .initial(String.valueOf(title.stay()))
+                        .maxLength(12)
+                        .width(160)
+                        .build(),
+                DialogInput.text("title_fade_out", text(player, "gui.node.input.fade-out"))
+                        .initial(String.valueOf(title.fadeOut()))
+                        .maxLength(12)
+                        .width(160)
                         .build()
         );
 
         List<ActionButton> buttons = new ArrayList<>();
-        buttons.add(button(Component.text("保存设置", NamedTextColor.GREEN),
-                Component.text("应用上面的输入"),
+        buttons.add(button(text(player, "gui.node.save"),
+                text(player, "gui.node.save.tooltip"),
                 view -> {
                     applyNode(player, name, index, view);
                     later(player, () -> openNode(player, name, index));
                 }));
-        buttons.add(button(Component.text("传送到该节点", NamedTextColor.AQUA),
-                Component.text("把玩家传送到这个镜头的位置"),
+        buttons.add(button(text(player, "gui.node.goto"),
+                text(player, "gui.node.goto.tooltip"),
                 view -> later(player, () -> teleportToNode(player, name, index))));
-        buttons.add(button(Component.text("更新为当前视角", NamedTextColor.YELLOW),
-                Component.text("把这个节点的位置和朝向改成你现在的视角"),
+        buttons.add(button(text(player, "gui.node.update"),
+                text(player, "gui.node.update.tooltip"),
                 view -> {
                     updateNodePose(player, name, index);
                     later(player, () -> openNode(player, name, index));
                 }));
-        buttons.add(button(Component.text("上移", NamedTextColor.YELLOW),
-                Component.text("与上一个节点交换顺序"),
+        buttons.add(button(text(player, "gui.node.up"),
+                text(player, "gui.node.up.tooltip"),
                 view -> {
                     swap(player, name, index, index - 1);
                     later(player, () -> openNode(player, name, Math.max(0, index - 1)));
                 }));
-        buttons.add(button(Component.text("下移", NamedTextColor.YELLOW),
-                Component.text("与下一个节点交换顺序"),
+        buttons.add(button(text(player, "gui.node.down"),
+                text(player, "gui.node.down.tooltip"),
                 view -> {
                     swap(player, name, index, index + 1);
                     later(player, () -> openNode(player, name, Math.min(track.size() - 1, index + 1)));
                 }));
-        buttons.add(button(Component.text("删除节点", NamedTextColor.RED),
-                Component.text("删除这个节点（需确认）"),
+        buttons.add(button(text(player, "gui.node.delete"),
+                text(player, "gui.node.delete.tooltip"),
                 view -> later(player, () -> confirmDeleteNode(player, name, index))));
-        buttons.add(button(Component.text("← 返回轨道", NamedTextColor.GRAY),
-                Component.text("回到轨道详情"),
+        buttons.add(button(text(player, "gui.node.back"),
+                text(player, "gui.node.back.tooltip"),
                 view -> later(player, () -> openTrack(player, name))));
 
         List<DialogBody> body = new ArrayList<>();
-        body.add(body("坐标 " + format(node.x()) + ", " + format(node.y()) + ", " + format(node.z())
-                + " · 朝向 yaw " + format(node.yaw()) + " / pitch " + format(node.pitch())));
-        body.add(body("当前：停留 " + format(node.hold()) + "s · 飞行 " + format(node.duration())
-                + "s · 缓动 " + node.ease().id() + " · 路径 " + node.path().id()));
-        body.add(body("修改上面的输入后点“保存设置”。路径 auto 表示同平面自动走直线。"));
+        body.add(body(player, "gui.node.body.pose",
+                "x", format(node.x()), "y", format(node.y()), "z", format(node.z()),
+                "yaw", format(node.yaw()), "pitch", format(node.pitch())));
+        body.add(body(player, "gui.node.body.current",
+                "hold", format(node.hold()),
+                "duration", format(node.duration()),
+                "ease", node.ease().id(),
+                "path", node.path().id()));
+        body.add(body(player, "gui.node.body.hint"));
+        body.add(body(player, "gui.node.body.title-hint"));
 
-        show(player, dialog(Component.text("节点 #" + (index + 1) + " · " + name, NamedTextColor.GOLD),
+        show(player, dialog(text(player, "gui.node.title", "index", index + 1, "track", name),
                 body, inputs, buttons, 1));
     }
 
@@ -250,13 +291,13 @@ public final class CameraDialogs {
 
     private void openCreate(Player player) {
         List<DialogInput> inputs = List.of(
-                DialogInput.text("name", Component.text("轨道名称（字母/数字/下划线/短横线）", NamedTextColor.GRAY))
+                DialogInput.text("name", text(player, "gui.create.input.name"))
                         .maxLength(32)
                         .width(320)
                         .build());
         List<ActionButton> buttons = new ArrayList<>();
-        buttons.add(button(Component.text("创建", NamedTextColor.GREEN),
-                Component.text("创建并打开这条轨道"),
+        buttons.add(button(text(player, "gui.create.button"),
+                text(player, "gui.create.button.tooltip"),
                 view -> {
                     String raw = view.getText("name");
                     if (raw == null || raw.isBlank()) {
@@ -271,18 +312,18 @@ public final class CameraDialogs {
                     this.store.save();
                     later(player, () -> openTrack(player, name));
                 }));
-        buttons.add(button(Component.text("← 返回", NamedTextColor.GRAY),
-                Component.text("回到轨道列表"),
+        buttons.add(button(text(player, "gui.track.back"),
+                text(player, "gui.track.back.tooltip"),
                 view -> later(player, () -> openMain(player))));
 
-        show(player, dialog(Component.text("新建轨道", NamedTextColor.GOLD),
-                List.of(body("给新轨道起一个名字，创建后再往里面添加镜头节点。")),
+        show(player, dialog(text(player, "gui.create.title"),
+                List.of(body(player, "gui.create.body")),
                 inputs, buttons, 1));
     }
 
     private void confirmDeleteTrack(Player player, String trackName) {
-        ActionButton yes = ActionButton.builder(Component.text("删除", NamedTextColor.RED))
-                .tooltip(Component.text("永久删除这条轨道"))
+        ActionButton yes = ActionButton.builder(text(player, "gui.confirm.delete-track.yes"))
+                .tooltip(text(player, "gui.confirm.delete-track.yes.tooltip"))
                 .action(customClick((view, audience) -> {
                     this.store.remove(trackName);
                     this.store.save();
@@ -290,15 +331,15 @@ public final class CameraDialogs {
                 }))
                 .build();
         show(player, Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(Component.text("删除轨道: " + trackName, NamedTextColor.RED))
-                        .body(List.of(body("轨道及其全部节点会被删除，且无法撤销。")))
+                .base(DialogBase.builder(text(player, "gui.confirm.delete-track.title", "name", trackName))
+                        .body(List.of(body(player, "gui.confirm.delete-track.body")))
                         .build())
                 .type(DialogType.confirmation(yes, cancelButton(player, () -> openTrack(player, trackName))))));
     }
 
     private void confirmDeleteNode(Player player, String trackName, int index) {
-        ActionButton yes = ActionButton.builder(Component.text("删除", NamedTextColor.RED))
-                .tooltip(Component.text("删除这个节点"))
+        ActionButton yes = ActionButton.builder(text(player, "gui.confirm.delete-node.yes"))
+                .tooltip(text(player, "gui.confirm.delete-node.yes.tooltip"))
                 .action(customClick((view, audience) -> {
                     CameraTrack track = this.store.get(trackName);
                     if (track != null && index >= 0 && index < track.size()) {
@@ -309,8 +350,8 @@ public final class CameraDialogs {
                 }))
                 .build();
         show(player, Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(Component.text("删除节点 #" + (index + 1), NamedTextColor.RED))
-                        .body(List.of(body("这个镜头节点会被移除，相邻节点会自动重新连接。")))
+                .base(DialogBase.builder(text(player, "gui.confirm.delete-node.title", "index", index + 1))
+                        .body(List.of(body(player, "gui.confirm.delete-node.body")))
                         .build())
                 .type(DialogType.confirmation(yes, cancelButton(player, () -> openNode(player, trackName, index))))));
     }
@@ -392,6 +433,11 @@ public final class CameraDialogs {
         String easeId = view.getText("ease");
         String pathId = view.getText("path");
         String command = view.getText("command");
+        String titleText = view.getText("title");
+        String subtitleText = view.getText("subtitle");
+        String fadeInText = view.getText("title_fade_in");
+        String stayText = view.getText("title_stay");
+        String fadeOutText = view.getText("title_fade_out");
 
         Double duration = parseSeconds(durationText);
         if (durationText != null && !durationText.isBlank() && duration == null) {
@@ -401,6 +447,30 @@ public final class CameraDialogs {
         Double hold = parseSeconds(holdText);
         if (holdText != null && !holdText.isBlank() && hold == null) {
             this.lang.send(player, "number.invalid", "value", holdText);
+            return;
+        }
+        Double fadeIn = parseSeconds(fadeInText);
+        if (fadeInText != null && !fadeInText.isBlank() && fadeIn == null) {
+            this.lang.send(player, "number.invalid", "value", fadeInText);
+            return;
+        }
+        Double stay = parseSeconds(stayText);
+        if (stayText != null && !stayText.isBlank() && stay == null) {
+            this.lang.send(player, "number.invalid", "value", stayText);
+            return;
+        }
+        Double fadeOut = parseSeconds(fadeOutText);
+        if (fadeOutText != null && !fadeOutText.isBlank() && fadeOut == null) {
+            this.lang.send(player, "number.invalid", "value", fadeOutText);
+            return;
+        }
+        // 标题文本既接受 MiniMessage，也接受原版 JSON 文本组件；解析失败时拒绝保存，避免播放时静默丢失
+        if (!TextComponents.isValid(titleText, player.getName())) {
+            this.lang.send(player, "gui.error-title", "value", titleText);
+            return;
+        }
+        if (!TextComponents.isValid(subtitleText, player.getName())) {
+            this.lang.send(player, "gui.error-title", "value", subtitleText);
             return;
         }
 
@@ -426,6 +496,33 @@ public final class CameraDialogs {
         if (command != null) {
             updated = updated.withCommand(command);
         }
+
+        NodeTitle title = updated.title();
+        boolean titleChanged = false;
+        if (titleText != null) {
+            title = title.withText(titleText);
+            titleChanged = true;
+        }
+        if (subtitleText != null) {
+            title = title.withSubtitle(subtitleText);
+            titleChanged = true;
+        }
+        if (fadeIn != null) {
+            title = title.withFadeIn(clamp(fadeIn));
+            titleChanged = true;
+        }
+        if (stay != null) {
+            title = title.withStay(clamp(stay));
+            titleChanged = true;
+        }
+        if (fadeOut != null) {
+            title = title.withFadeOut(clamp(fadeOut));
+            titleChanged = true;
+        }
+        if (titleChanged) {
+            updated = updated.withTitle(title);
+        }
+
         track.set(index, updated);
         this.store.save();
         this.lang.send(player, "gui.saved", "index", index + 1);
@@ -448,6 +545,13 @@ public final class CameraDialogs {
 
     private static double clamp(double value) {
         return Math.max(0.0D, Math.min(MAX_SECONDS, value));
+    }
+
+    private static String truncate(String value, int limit) {
+        if (value == null) {
+            return "";
+        }
+        return value.length() > limit ? value.substring(0, limit) : value;
     }
 
     // ------------------------------------------------------------------ 构建工具
@@ -475,21 +579,29 @@ public final class CameraDialogs {
         return DialogAction.customClick(callback, ClickCallback.Options.builder().uses(1).build());
     }
 
-    private static ActionButton closeButton() {
-        return ActionButton.builder(Component.text("关闭", NamedTextColor.GRAY))
-                .tooltip(Component.text("关闭界面"))
+    private ActionButton closeButton(Player player) {
+        return ActionButton.builder(text(player, "gui.close"))
+                .tooltip(text(player, "gui.close.tooltip"))
                 .build();
     }
 
     private ActionButton cancelButton(Player player, Runnable reopen) {
-        return ActionButton.builder(Component.text("取消", NamedTextColor.GRAY))
-                .tooltip(Component.text("返回"))
+        return ActionButton.builder(text(player, "gui.cancel"))
+                .tooltip(text(player, "gui.cancel.tooltip"))
                 .action(customClick((view, audience) -> later(player, reopen)))
                 .build();
     }
 
-    private static DialogBody body(String text) {
-        return DialogBody.plainMessage(Component.text(text, NamedTextColor.GRAY));
+    private Component text(Player player, String key, Object... placeholders) {
+        return this.lang.component(player, key, placeholders);
+    }
+
+    private Component onOff(Player player, boolean value) {
+        return text(player, value ? "common.on" : "common.off");
+    }
+
+    private DialogBody body(Player player, String key, Object... placeholders) {
+        return DialogBody.plainMessage(text(player, key, placeholders));
     }
 
     private static List<SingleOptionDialogInput.OptionEntry> easeOptions(Ease current) {
@@ -529,6 +641,3 @@ public final class CameraDialogs {
         });
     }
 }
-
-
-

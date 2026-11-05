@@ -113,7 +113,7 @@ final class PlaybackSession {
             this.rig.attach(player, start);
         }
 
-        fireCues(0.0D);
+        fireCues(player, 0.0D);
         this.task = Bukkit.getScheduler().runTaskTimer(this.plugin, this::tick, 1L, 1L);
     }
 
@@ -157,18 +157,20 @@ final class PlaybackSession {
             }
         }
 
-        fireCues(time);
+        fireCues(player, time);
         this.rig.apply(player, this.sampler.at(time));
     }
 
     /**
-     * 到达节点时执行节点上挂的命令（音效、粒子、标题……），用于开场动画的演出编排。
+     * 到达节点时先显示屏幕上标题，再执行节点上挂的命令（音效、粒子……），用于开场动画的演出编排。
      */
-    private void fireCues(double time) {
+    private void fireCues(Player player, double time) {
         double[] starts = this.sampler.starts();
         while (this.cuePointer < this.nodes.size() && time >= starts[this.cuePointer]) {
             CameraNode node = this.nodes.get(this.cuePointer);
+            int index = this.cuePointer + 1;
             this.cuePointer++;
+            showTitle(player, node, index);
             String command = node.command();
             if (command == null || command.isBlank()) {
                 continue;
@@ -179,6 +181,14 @@ final class PlaybackSession {
                 this.plugin.getLogger().warning("节点命令执行失败: " + command + " (" + exception.getMessage() + ")");
             }
         }
+    }
+
+    /**
+     * 显示节点标题：两行文本分别可以是 MiniMessage 或原版 JSON 文本组件，
+     * 淡入 / 停留 / 淡出由节点单独配置（秒）。
+     */
+    private void showTitle(Player player, CameraNode node, int index) {
+        TitleRenderer.show(player, node.title(), index, this.plugin.getLogger()::warning);
     }
 
     /** 正常结束：先卸载镜头，再恢复玩家状态，可选是否回到播放前的位置。 */

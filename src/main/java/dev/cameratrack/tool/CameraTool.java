@@ -2,7 +2,6 @@ package dev.cameratrack.tool;
 
 import dev.cameratrack.CameraTrackPlugin;
 import dev.cameratrack.lang.Lang;
-import dev.cameratrack.playback.PreviewRenderer;
 import dev.cameratrack.track.CameraNode;
 import dev.cameratrack.track.CameraTrack;
 import dev.cameratrack.track.Ease;
@@ -250,10 +249,11 @@ public final class CameraTool implements Listener {
             this.lang.sendPlain(player, "tool.more", "count", track.size() - shown, "name", track.name());
         }
         World world = Bukkit.getWorld(track.get(0).world());
-        int points = world == null ? 0
-                : PreviewRenderer.render(world, track, this.plugin.axisTolerance(), track.flow());
+        int points = world == null ? 0 : this.plugin.preview().render(player, world, track);
         if (points > 0) {
-            this.lang.sendPlain(player, "preview.success", "count", points);
+            this.lang.sendPlain(player, "preview.success",
+                    "count", points,
+                    "seconds", format(this.plugin.previewSettings().durationSeconds()));
         }
     }
     private CameraTrack currentTrack(Player player) {

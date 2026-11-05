@@ -83,6 +83,10 @@ public final class PlaybackManager implements Listener {
         if (session == null) {
             return false;
         }
+        // 手动停止时清掉可能还在显示的节点标题；正常播完则保留最后一个标题自然淡出
+        if (player.isOnline()) {
+            player.clearTitle();
+        }
         session.end(true);
         return true;
     }

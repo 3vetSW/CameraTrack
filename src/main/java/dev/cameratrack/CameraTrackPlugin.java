@@ -5,6 +5,8 @@ import dev.cameratrack.lang.Lang;
 import dev.cameratrack.playback.PendingReturns;
 import dev.cameratrack.playback.PlaybackManager;
 import dev.cameratrack.playback.PlaybackMode;
+import dev.cameratrack.playback.PreviewRenderer;
+import dev.cameratrack.playback.PreviewSettings;
 import dev.cameratrack.track.TrackStore;
 import dev.cameratrack.tool.CameraTool;
 import dev.cameratrack.ui.CameraDialogs;
@@ -26,6 +28,8 @@ public final class CameraTrackPlugin extends JavaPlugin {
     private CameraTool tool;
     private PendingReturns pendingReturns;
     private Lang lang;
+    private PreviewSettings previewSettings;
+    private PreviewRenderer preview;
     private PlaybackMode defaultPlaybackMode = PlaybackMode.SPECTATOR_ENTITY;
     private double axisTolerance = 0.05D;
 
@@ -36,6 +40,8 @@ public final class CameraTrackPlugin extends JavaPlugin {
         this.lang.load();
         this.defaultPlaybackMode = PlaybackMode.byId(getConfig().getString("playback-mode", "entity"));
         this.axisTolerance = Math.max(0.0D, getConfig().getDouble("path.axis-tolerance", 0.05D));
+        this.previewSettings = PreviewSettings.from(getConfig());
+        this.preview = new PreviewRenderer(this, this.previewSettings);
 
         this.store = new TrackStore(this);
         this.store.load();
@@ -69,6 +75,9 @@ public final class CameraTrackPlugin extends JavaPlugin {
         if (this.playback != null) {
             this.playback.stopAll();
         }
+        if (this.preview != null) {
+            this.preview.shutdown();
+        }
         if (this.store != null) {
             this.store.save();
         }
@@ -89,6 +98,14 @@ public final class CameraTrackPlugin extends JavaPlugin {
 
     public CameraTool tool() {
         return this.tool;
+    }
+
+    public PreviewRenderer preview() {
+        return this.preview;
+    }
+
+    public PreviewSettings previewSettings() {
+        return this.previewSettings;
     }
 
     public PlaybackMode defaultPlaybackMode() {

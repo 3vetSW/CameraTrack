@@ -82,8 +82,33 @@ public final class TrackStore {
                 asDouble(map.get("duration"), CameraNode.DEFAULT_DURATION),
                 Ease.byId(ease == null ? "smooth" : ease.toString(), Ease.SMOOTH),
                 PathMode.byId(path == null ? "auto" : path.toString(), PathMode.AUTO),
-                command == null ? "" : command.toString()
+                command == null ? "" : command.toString(),
+                readTitle(map.get("title"))
         );
+    }
+
+    /**
+     * 读取节点的 title 设置。
+     *
+     * <p>既支持完整写法（{@code title: {text: ..., subtitle: ..., fade-in: ...}}），
+     * 也支持简写（{@code title: "一行文字"}，等价于只设置 text）。</p>
+     */
+    private static NodeTitle readTitle(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Object text = map.get("text");
+            Object subtitle = map.get("subtitle");
+            return new NodeTitle(
+                    text == null ? "" : text.toString(),
+                    subtitle == null ? "" : subtitle.toString(),
+                    asDouble(map.get("fade-in"), NodeTitle.DEFAULT_FADE_IN),
+                    asDouble(map.get("stay"), NodeTitle.DEFAULT_STAY),
+                    asDouble(map.get("fade-out"), NodeTitle.DEFAULT_FADE_OUT)
+            );
+        }
+        if (value instanceof String string) {
+            return NodeTitle.EMPTY.withText(string);
+        }
+        return NodeTitle.EMPTY;
     }
 
     private static double asDouble(Object value, double fallback) {
@@ -124,6 +149,18 @@ public final class TrackStore {
                 }
                 if (!node.command().isBlank()) {
                     entry.put("command", node.command());
+                }
+                NodeTitle title = node.title();
+                if (title != null && !title.isEmpty()) {
+                    Map<String, Object> titleMap = new LinkedHashMap<>();
+                    titleMap.put("text", title.text());
+                    if (!title.subtitle().isBlank()) {
+                        titleMap.put("subtitle", title.subtitle());
+                    }
+                    titleMap.put("fade-in", round(title.fadeIn()));
+                    titleMap.put("stay", round(title.stay()));
+                    titleMap.put("fade-out", round(title.fadeOut()));
+                    entry.put("title", titleMap);
                 }
                 list.add(entry);
             }
