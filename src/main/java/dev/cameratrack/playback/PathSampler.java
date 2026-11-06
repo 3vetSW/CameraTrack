@@ -1,6 +1,7 @@
 package dev.cameratrack.playback;
 
 import dev.cameratrack.track.CameraNode;
+import dev.cameratrack.track.PathMode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,8 +20,18 @@ import java.util.List;
  *
  * <p>位置在同平面段（或 {@code path line}）上仍然保持直线；朝向始终按最短弧展开后做样条，
  * 避免 ±180° 处的绕圈。</p>
+ *
+ * <p><b>沿视线的弧线（arc）</b>：只有两个节点、或位于轨道两端的段，样条会退化成一条直线
+ * （起点/终点切线为 0）。把节点 {@code path} 设为 {@code arc}（或打开
+ * {@code path.auto-arc} 让所有“不同平面”的自动段都这样做），这一段就会用起终点镜头的
+ * 朝向作为切线，让轨迹朝视线方向弯出去。</p>
  */
 public final class PathSampler {
+
+    /** 弧线切线长度 = 段长度 × 该系数；0 表示不弯曲，2 表示很弯。 */
+    public static final double DEFAULT_ARC_STRENGTH = 0.6D;
+    /** 默认让 auto 模式下“不同平面”的段自动使用弧线。 */
+    public static final boolean DEFAULT_AUTO_ARC = true;
 
     private final List<CameraNode> nodes;
     /** starts[i] = 到达节点 i 并开始停留的绝对时间（秒）。 */
@@ -28,6 +39,8 @@ public final class PathSampler {
     private final double total;
     private final double axisTolerance;
     private final boolean flow;
+    private final double arcStrength;
+    private final boolean autoArc;
 
     // 仅在 flow 模式下使用
     private final double[] unwrappedYaw;
@@ -37,10 +50,13 @@ public final class PathSampler {
     private final double[] slopeYaw;
     private final double[] slopePitch;
 
-    public PathSampler(List<CameraNode> nodes, double axisTolerance, boolean flow) {
+    public PathSampler(List<CameraNode> nodes, double axisTolerance, boolean flow,
+                       double arcStrength, boolean autoArc) {
         this.nodes = List.copyOf(nodes);
         this.axisTolerance = Math.max(0.0D, axisTolerance);
         this.flow = flow;
+        this.arcStrength = Math.max(0.0D, Math.min(2.0D, arcStrength));
+        this.autoArc = autoArc;
         int count = this.nodes.size();
         this.starts = new double[count];
         double cursor = 0.0D;
@@ -69,6 +85,10 @@ public final class PathSampler {
             this.slopeYaw = null;
             this.slopePitch = null;
         }
+    }
+
+    public PathSampler(List<CameraNode> nodes, double axisTolerance, boolean flow) {
+        this(nodes, axisTolerance, flow, DEFAULT_ARC_STRENGTH, DEFAULT_AUTO_ARC);
     }
 
     public PathSampler(List<CameraNode> nodes, double axisTolerance) {
@@ -123,6 +143,14 @@ public final class PathSampler {
         return this.flow;
     }
 
+    public double arcStrength() {
+        return this.arcStrength;
+    }
+
+    public boolean autoArc() {
+        return this.autoArc;
+    }
+
     /**
      * 采样 {@code seconds} 时刻的相机位姿。
      */
@@ -167,7 +195,12 @@ public final class PathSampler {
         double x;
         double y;
         double z;
-        if (isStraight(index)) {
+        if (effectiveMode(index) == PathMode.ARC) {
+            double[] arc = arcPosition(index, u);
+            x = arc[0];
+            y = arc[1];
+            z = arc[2];
+        } else if (isStraight(index)) {
             x = p1.x() + (p2.x() - p1.x()) * u;
             y = p1.y() + (p2.y() - p1.y()) * u;
             z = p1.z() + (p2.z() - p1.z()) * u;
@@ -203,7 +236,12 @@ public final class PathSampler {
         double x;
         double y;
         double z;
-        if (isStraight(index)) {
+        if (effectiveMode(index) == PathMode.ARC) {
+            double[] arc = arcPosition(index, s);
+            x = arc[0];
+            y = arc[1];
+            z = arc[2];
+        } else if (isStraight(index)) {
             x = p1.x() + (p2.x() - p1.x()) * s;
             y = p1.y() + (p2.y() - p1.y()) * s;
             z = p1.z() + (p2.z() - p1.z()) * s;
@@ -250,20 +288,87 @@ public final class PathSampler {
     }
 
     /**
-     * 这一段是否走直线：显式 line / curve，或者自动模式下三轴有一轴同上。
+     * 这一段实际生效的路径模式：AUTO 且开启了 {@code path.auto-arc} 时，
+     * “不同平面”的自动段按 ARC 处理（同平面仍然保持直线）。
+     */
+    private PathMode effectiveMode(int index) {
+        PathMode mode = this.nodes.get(index).path();
+        if (mode == PathMode.AUTO && this.autoArc && !isSamePlane(index)) {
+            return PathMode.ARC;
+        }
+        return mode;
+    }
+
+    /** 两节点是否在 X / Y / Z 任一轴上坐标相同（同一平面）。 */
+    private boolean isSamePlane(int index) {
+        CameraNode from = this.nodes.get(index);
+        CameraNode to = this.nodes.get(index + 1);
+        return same(from.x(), to.x()) || same(from.y(), to.y()) || same(from.z(), to.z());
+    }
+
+    /**
+     * 沿视线的弧线位置：用起点、终点镜头的朝向作为三次 Hermite 的切线。
+     *
+     * <p>切线长度 = 段长度 × {@code arc-strength}；如果某个节点的视线与连线方向相反，
+     * 会先剥掉“向后”的分量，避免镜头冲过终点再退回来。</p>
+     *
+     * @param u 0..1 的段内进度
+     */
+    private double[] arcPosition(int index, double u) {
+        CameraNode from = this.nodes.get(index);
+        CameraNode to = this.nodes.get(index + 1);
+        double dx = to.x() - from.x();
+        double dy = to.y() - from.y();
+        double dz = to.z() - from.z();
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (distance < 1.0E-9D) {
+            return new double[]{from.x(), from.y(), from.z()};
+        }
+        double cx = dx / distance;
+        double cy = dy / distance;
+        double cz = dz / distance;
+        double scale = distance * this.arcStrength;
+        // 带 hold 的节点本来就该平滑停住，切线归零，避免弧线“冲进”停留点
+        double[] start = from.hold() > 1.0E-9D
+                ? new double[]{0.0D, 0.0D, 0.0D}
+                : viewTangent(from, cx, cy, cz, scale);
+        double[] end = to.hold() > 1.0E-9D
+                ? new double[]{0.0D, 0.0D, 0.0D}
+                : viewTangent(to, cx, cy, cz, scale);
+        return new double[]{
+                hermite(from.x(), to.x(), start[0], end[0], 1.0D, u),
+                hermite(from.y(), to.y(), start[1], end[1], 1.0D, u),
+                hermite(from.z(), to.z(), start[2], end[2], 1.0D, u)
+        };
+    }
+
+    /** 节点视线方向的单位向量（含 yaw / pitch），乘以 {@code scale}。 */
+    private static double[] viewTangent(CameraNode node, double cx, double cy, double cz, double scale) {
+        double yaw = Math.toRadians(node.yaw());
+        double pitch = Math.toRadians(node.pitch());
+        double vx = -Math.sin(yaw) * Math.cos(pitch);
+        double vy = -Math.sin(pitch);
+        double vz = Math.cos(yaw) * Math.cos(pitch);
+        double dot = vx * cx + vy * cy + vz * cz;
+        if (dot < 0.0D) {
+            vx -= cx * dot;
+            vy -= cy * dot;
+            vz -= cz * dot;
+        }
+        return new double[]{vx * scale, vy * scale, vz * scale};
+    }
+
+    /**
+     * 这一段是否走直线：显式 line / curve / arc，或者自动模式下三轴有一轴同上。
      */
     public boolean isStraight(int index) {
         if (index < 0 || index >= this.nodes.size() - 1) {
             return false;
         }
-        CameraNode from = this.nodes.get(index);
-        return switch (from.path()) {
+        return switch (effectiveMode(index)) {
             case LINE -> true;
-            case CURVE -> false;
-            case AUTO -> {
-                CameraNode to = this.nodes.get(index + 1);
-                yield same(from.x(), to.x()) || same(from.y(), to.y()) || same(from.z(), to.z());
-            }
+            case CURVE, ARC -> false;
+            case AUTO -> isSamePlane(index);
         };
     }
 

@@ -35,15 +35,20 @@ public final class PlaybackManager implements Listener {
     private final JavaPlugin plugin;
     private final TrackStore store;
     private final double axisTolerance;
+    private final double arcStrength;
+    private final boolean autoArc;
     private final PendingReturns pendingReturns;
     private final Lang lang;
     private final Map<UUID, PlaybackSession> sessions = new HashMap<>();
 
     public PlaybackManager(JavaPlugin plugin, TrackStore store, double axisTolerance,
+                           double arcStrength, boolean autoArc,
                            PendingReturns pendingReturns, Lang lang) {
         this.plugin = plugin;
         this.store = store;
         this.axisTolerance = Math.max(0.0D, axisTolerance);
+        this.arcStrength = Math.max(0.0D, Math.min(2.0D, arcStrength));
+        this.autoArc = autoArc;
         this.pendingReturns = pendingReturns;
         this.lang = lang;
     }
@@ -54,6 +59,14 @@ public final class PlaybackManager implements Listener {
 
     public double axisTolerance() {
         return this.axisTolerance;
+    }
+
+    public double arcStrength() {
+        return this.arcStrength;
+    }
+
+    public boolean autoArc() {
+        return this.autoArc;
     }
 
     public boolean isPlaying(Player player) {

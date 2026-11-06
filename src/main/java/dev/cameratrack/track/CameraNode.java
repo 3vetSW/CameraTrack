@@ -34,7 +34,7 @@ public record CameraNode(
         NodeTitle title
 ) {
 
-    public static final double DEFAULT_HOLD = 0.5D;
+    public static final double DEFAULT_HOLD = 0.0D;
     public static final double DEFAULT_DURATION = 3.0D;
 
     public CameraNode {

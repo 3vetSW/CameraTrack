@@ -45,7 +45,8 @@ public final class PreviewRenderer {
         if (world == null || track == null || track.size() < 2) {
             return 0;
         }
-        PathSampler sampler = new PathSampler(track.nodes(), this.plugin.axisTolerance(), track.flow());
+        PathSampler sampler = new PathSampler(track.nodes(), this.plugin.axisTolerance(), track.flow(),
+                this.plugin.arcStrength(), this.plugin.autoArc());
         if (sampler.total() <= 0.0D) {
             return 0;
         }

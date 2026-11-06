@@ -50,7 +50,8 @@ final class PlaybackSession {
         this.manager = manager;
         this.playerId = player.getUniqueId();
         this.nodes = nodes;
-        this.sampler = new PathSampler(nodes, manager.axisTolerance(), flow);
+        this.sampler = new PathSampler(nodes, manager.axisTolerance(), flow,
+                manager.arcStrength(), manager.autoArc());
         this.speed = speed;
         this.loop = loop;
         this.stay = stay;

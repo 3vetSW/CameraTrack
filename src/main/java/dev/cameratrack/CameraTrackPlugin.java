@@ -2,6 +2,7 @@ package dev.cameratrack;
 
 import dev.cameratrack.command.CameraCommand;
 import dev.cameratrack.lang.Lang;
+import dev.cameratrack.playback.PathSampler;
 import dev.cameratrack.playback.PendingReturns;
 import dev.cameratrack.playback.PlaybackManager;
 import dev.cameratrack.playback.PlaybackMode;
@@ -32,6 +33,8 @@ public final class CameraTrackPlugin extends JavaPlugin {
     private PreviewRenderer preview;
     private PlaybackMode defaultPlaybackMode = PlaybackMode.SPECTATOR_ENTITY;
     private double axisTolerance = 0.05D;
+    private double arcStrength = PathSampler.DEFAULT_ARC_STRENGTH;
+    private boolean autoArc = PathSampler.DEFAULT_AUTO_ARC;
 
     @Override
     public void onEnable() {
@@ -40,6 +43,9 @@ public final class CameraTrackPlugin extends JavaPlugin {
         this.lang.load();
         this.defaultPlaybackMode = PlaybackMode.byId(getConfig().getString("playback-mode", "entity"));
         this.axisTolerance = Math.max(0.0D, getConfig().getDouble("path.axis-tolerance", 0.05D));
+        this.arcStrength = Math.max(0.0D, Math.min(2.0D,
+                getConfig().getDouble("path.arc-strength", PathSampler.DEFAULT_ARC_STRENGTH)));
+        this.autoArc = getConfig().getBoolean("path.auto-arc", PathSampler.DEFAULT_AUTO_ARC);
         this.previewSettings = PreviewSettings.from(getConfig());
         this.preview = new PreviewRenderer(this, this.previewSettings);
 
@@ -49,7 +55,8 @@ public final class CameraTrackPlugin extends JavaPlugin {
         this.pendingReturns = new PendingReturns(this);
         this.pendingReturns.load();
 
-        this.playback = new PlaybackManager(this, this.store, this.axisTolerance, this.pendingReturns, this.lang);
+        this.playback = new PlaybackManager(this, this.store, this.axisTolerance,
+                this.arcStrength, this.autoArc, this.pendingReturns, this.lang);
         getServer().getPluginManager().registerEvents(this.playback, this);
         this.dialogs = new CameraDialogs(this, this.store, this.playback, this.lang);
         this.tool = new CameraTool(this, this.store, this.lang);
@@ -114,6 +121,14 @@ public final class CameraTrackPlugin extends JavaPlugin {
 
     public double axisTolerance() {
         return this.axisTolerance;
+    }
+
+    public double arcStrength() {
+        return this.arcStrength;
+    }
+
+    public boolean autoArc() {
+        return this.autoArc;
     }
 }
 
