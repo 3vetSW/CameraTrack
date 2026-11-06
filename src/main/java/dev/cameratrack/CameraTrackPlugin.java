@@ -43,7 +43,7 @@ public final class CameraTrackPlugin extends JavaPlugin {
         this.lang.load();
         this.defaultPlaybackMode = PlaybackMode.byId(getConfig().getString("playback-mode", "entity"));
         this.axisTolerance = Math.max(0.0D, getConfig().getDouble("path.axis-tolerance", 0.05D));
-        this.arcStrength = Math.max(0.0D, Math.min(2.0D,
+        this.arcStrength = Math.max(0.0D, Math.min(0.5D,
                 getConfig().getDouble("path.arc-strength", PathSampler.DEFAULT_ARC_STRENGTH)));
         this.autoArc = getConfig().getBoolean("path.auto-arc", PathSampler.DEFAULT_AUTO_ARC);
         this.previewSettings = PreviewSettings.from(getConfig());

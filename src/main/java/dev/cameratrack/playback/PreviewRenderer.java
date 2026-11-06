@@ -127,6 +127,9 @@ public final class PreviewRenderer {
      * 按固定距离对轨迹采样：沿时间轴细采样，再按与上一个输出点的距离抽稀，
      * 因此轨迹上的粒子间距与镜头速度无关。
      *
+     * <p>时间步长按“最快的一段”反推（至少每段间距取两个采样点），
+     * 否则高速段落在固定时间步下会直接跨过多个间距，配置的 spacing 就形同虚设。</p>
+     *
      * @param spacing   相邻粒子间距（格）
      * @param maxPoints 最多输出多少个点
      */
@@ -135,7 +138,7 @@ public final class PreviewRenderer {
         if (total <= 0.0D) {
             return List.of(sampler.at(0.0D));
         }
-        double step = Math.max(0.005D, Math.min(0.05D, spacing / 4.0D));
+        double step = Math.max(0.005D, Math.min(0.05D, spacing / (fastestSpeed(sampler) * 2.0D)));
         int guard = Math.max(1000, maxPoints * 40);
         List<Pose> points = new ArrayList<>();
         Pose last = null;
@@ -154,6 +157,25 @@ public final class PreviewRenderer {
             }
         }
         return points;
+    }
+
+    /** 轨道上最快一段的速度（格/秒），用于决定细采样步长。 */
+    private static double fastestSpeed(PathSampler sampler) {
+        List<CameraNode> nodes = sampler.nodes();
+        double fastest = 0.5D;
+        for (int i = 0; i < nodes.size() - 1; i++) {
+            CameraNode from = nodes.get(i);
+            CameraNode to = nodes.get(i + 1);
+            double duration = Math.max(0.0D, from.duration());
+            if (duration < 1.0E-6D) {
+                continue;
+            }
+            double dx = to.x() - from.x();
+            double dy = to.y() - from.y();
+            double dz = to.z() - from.z();
+            fastest = Math.max(fastest, Math.sqrt(dx * dx + dy * dy + dz * dz) / duration);
+        }
+        return fastest;
     }
 
     private static double distance(Pose first, Pose second) {

@@ -21,16 +21,17 @@ import java.util.List;
  * <p>位置在同平面段（或 {@code path line}）上仍然保持直线；朝向始终按最短弧展开后做样条，
  * 避免 ±180° 处的绕圈。</p>
  *
- * <p><b>沿视线的弧线（arc）</b>：只有两个节点、或位于轨道两端的段，样条会退化成一条直线
+ * <p><b>沿视线的弧线（arc）</b>：只有两个节点的轨道，样条会退化成一条直线
  * （起点/终点切线为 0）。把节点 {@code path} 设为 {@code arc}（或打开
- * {@code path.auto-arc} 让所有“不同平面”的自动段都这样做），这一段就会用起终点镜头的
- * 朝向作为切线，让轨迹朝视线方向弯出去。</p>
+ * {@code path.auto-arc} 让两点轨道自动这样做），这一段会变成一条<b>单侧弧线</b>：
+ * 在连线中点朝“视线反方向”鼓出，形成完整的一段弧，而不是两端各鼓一次的 S 形。
+ * 多点轨道仍然由邻居切线样条连接，本身就是连续曲线。</p>
  */
 public final class PathSampler {
 
-    /** 弧线切线长度 = 段长度 × 该系数；0 表示不弯曲，2 表示很弯。 */
-    public static final double DEFAULT_ARC_STRENGTH = 0.6D;
-    /** 默认让 auto 模式下“不同平面”的段自动使用弧线。 */
+    /** 弧顶偏移 = 段长 × 该系数；0 表示不弯曲。 */
+    public static final double DEFAULT_ARC_STRENGTH = 0.15D;
+    /** 默认让两点轨道（非共面）自动补一段弧线。 */
     public static final boolean DEFAULT_AUTO_ARC = true;
 
     private final List<CameraNode> nodes;
@@ -55,7 +56,7 @@ public final class PathSampler {
         this.nodes = List.copyOf(nodes);
         this.axisTolerance = Math.max(0.0D, axisTolerance);
         this.flow = flow;
-        this.arcStrength = Math.max(0.0D, Math.min(2.0D, arcStrength));
+        this.arcStrength = Math.max(0.0D, Math.min(0.5D, arcStrength));
         this.autoArc = autoArc;
         int count = this.nodes.size();
         this.starts = new double[count];
@@ -288,15 +289,29 @@ public final class PathSampler {
     }
 
     /**
-     * 这一段实际生效的路径模式：AUTO 且开启了 {@code path.auto-arc} 时，
-     * “不同平面”的自动段按 ARC 处理（同平面仍然保持直线）。
+     * 这一段实际生效的路径模式。
+     *
+     * <p>{@code auto} 只在“本来就会退化成直线”的两点轨道上自动补弧线。
+     * 多点连接时位置由邻居切线样条负责，本身就是一条完整曲线；如果再逐段套
+     * “两端各自沿视线”的弧线，每段会在起点鼓向一侧、终点鼓向另一侧，形成 S 形。</p>
      */
     private PathMode effectiveMode(int index) {
         PathMode mode = this.nodes.get(index).path();
-        if (mode == PathMode.AUTO && this.autoArc && !isSamePlane(index)) {
+        if (mode == PathMode.AUTO && this.autoArc && shouldAutoArc(index)) {
             return PathMode.ARC;
         }
         return mode;
+    }
+
+    /** 只有“两点轨道”的非共面段会退化成正线，才需要自动补弧线。 */
+    private boolean shouldAutoArc(int index) {
+        if (this.nodes.size() != 2 || isSamePlane(index)) {
+            return false;
+        }
+        CameraNode from = this.nodes.get(index);
+        CameraNode to = this.nodes.get(index + 1);
+        // 带停留的段要平滑停住，不插弧线
+        return from.hold() <= 1.0E-9D && to.hold() <= 1.0E-9D;
     }
 
     /** 两节点是否在 X / Y / Z 任一轴上坐标相同（同一平面）。 */
@@ -307,10 +322,11 @@ public final class PathSampler {
     }
 
     /**
-     * 沿视线的弧线位置：用起点、终点镜头的朝向作为三次 Hermite 的切线。
+     * 单侧弧线：二次 Bézier。控制点位于连线中点、朝“视线反方向”偏移，
+     * 整段只有一个鼓包；不会像两端独立的 Hermite 切线那样出现 S 形。
      *
-     * <p>切线长度 = 段长度 × {@code arc-strength}；如果某个节点的视线与连线方向相反，
-     * 会先剥掉“向后”的分量，避免镜头冲过终点再退回来。</p>
+     * <p>偏移量（弧顶）= 段长 × {@code arc-strength}；视线正好沿着连线时没有侧向，
+     * 保持直线；任一端带 {@code hold} 时也保持平滑停靠，不插弧线。</p>
      *
      * @param u 0..1 的段内进度
      */
@@ -321,41 +337,64 @@ public final class PathSampler {
         double dy = to.y() - from.y();
         double dz = to.z() - from.z();
         double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (distance < 1.0E-9D) {
-            return new double[]{from.x(), from.y(), from.z()};
+        if (distance < 1.0E-9D || from.hold() > 1.0E-9D || to.hold() > 1.0E-9D) {
+            return smoothLine(from, to, u);
         }
         double cx = dx / distance;
         double cy = dy / distance;
         double cz = dz / distance;
-        double scale = distance * this.arcStrength;
-        // 带 hold 的节点本来就该平滑停住，切线归零，避免弧线“冲进”停留点
-        double[] start = from.hold() > 1.0E-9D
-                ? new double[]{0.0D, 0.0D, 0.0D}
-                : viewTangent(from, cx, cy, cz, scale);
-        double[] end = to.hold() > 1.0E-9D
-                ? new double[]{0.0D, 0.0D, 0.0D}
-                : viewTangent(to, cx, cy, cz, scale);
+        double[] view = averageView(from, to);
+        double along = view[0] * cx + view[1] * cy + view[2] * cz;
+        double px = view[0] - cx * along;
+        double py = view[1] - cy * along;
+        double pz = view[2] - cz * along;
+        double perpendicular = Math.sqrt(px * px + py * py + pz * pz);
+        if (perpendicular < 1.0E-6D) {
+            return smoothLine(from, to, u);
+        }
+        double nx = -px / perpendicular;
+        double ny = -py / perpendicular;
+        double nz = -pz / perpendicular;
+        double bulge = 4.0D * distance * this.arcStrength * u * (1.0D - u);
         return new double[]{
-                hermite(from.x(), to.x(), start[0], end[0], 1.0D, u),
-                hermite(from.y(), to.y(), start[1], end[1], 1.0D, u),
-                hermite(from.z(), to.z(), start[2], end[2], 1.0D, u)
+                from.x() + dx * u + nx * bulge,
+                from.y() + dy * u + ny * bulge,
+                from.z() + dz * u + nz * bulge
         };
     }
 
-    /** 节点视线方向的单位向量（含 yaw / pitch），乘以 {@code scale}。 */
-    private static double[] viewTangent(CameraNode node, double cx, double cy, double cz, double scale) {
+    /** 无弧线时的平滑直线（与 flow 的零切线 Hermite 一致）。 */
+    private static double[] smoothLine(CameraNode from, CameraNode to, double u) {
+        return new double[]{
+                hermite(from.x(), to.x(), 0.0D, 0.0D, 1.0D, u),
+                hermite(from.y(), to.y(), 0.0D, 0.0D, 1.0D, u),
+                hermite(from.z(), to.z(), 0.0D, 0.0D, 1.0D, u)
+        };
+    }
+
+    /** 两端镜头朝向的平均方向（相反时退回起点朝向）。 */
+    private static double[] averageView(CameraNode from, CameraNode to) {
+        double[] a = view(from);
+        double[] b = view(to);
+        double x = a[0] + b[0];
+        double y = a[1] + b[1];
+        double z = a[2] + b[2];
+        double length = Math.sqrt(x * x + y * y + z * z);
+        if (length < 1.0E-6D) {
+            return a;
+        }
+        return new double[]{x / length, y / length, z / length};
+    }
+
+    /** 节点视线方向的单位向量（yaw / pitch）。 */
+    private static double[] view(CameraNode node) {
         double yaw = Math.toRadians(node.yaw());
         double pitch = Math.toRadians(node.pitch());
-        double vx = -Math.sin(yaw) * Math.cos(pitch);
-        double vy = -Math.sin(pitch);
-        double vz = Math.cos(yaw) * Math.cos(pitch);
-        double dot = vx * cx + vy * cy + vz * cz;
-        if (dot < 0.0D) {
-            vx -= cx * dot;
-            vy -= cy * dot;
-            vz -= cz * dot;
-        }
-        return new double[]{vx * scale, vy * scale, vz * scale};
+        return new double[]{
+                -Math.sin(yaw) * Math.cos(pitch),
+                -Math.sin(pitch),
+                Math.cos(yaw) * Math.cos(pitch)
+        };
     }
 
     /**
