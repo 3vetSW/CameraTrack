@@ -4,6 +4,7 @@ import com.destroystokyo.paper.event.player.PlayerStopSpectatingEntityEvent;
 import dev.cameratrack.lang.Lang;
 import dev.cameratrack.track.CameraTrack;
 import dev.cameratrack.track.TrackStore;
+import dev.cameratrack.track.TrackValidator;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -80,7 +81,7 @@ public final class PlaybackManager implements Listener {
 
     public boolean start(Player player, CameraTrack track, double speed, boolean loop, boolean stay,
                          PlaybackMode mode, boolean flow) {
-        if (track.size() < 2) {
+        if (track.size() < 2 || TrackValidator.validate(track) != null) {
             return false;
         }
         stop(player);

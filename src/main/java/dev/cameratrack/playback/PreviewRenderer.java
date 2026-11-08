@@ -3,7 +3,9 @@ package dev.cameratrack.playback;
 import dev.cameratrack.CameraTrackPlugin;
 import dev.cameratrack.track.CameraNode;
 import dev.cameratrack.track.CameraTrack;
+import dev.cameratrack.track.NodeType;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Particle;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -16,13 +18,17 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 轨迹粒子预览：沿整条轨道按固定<b>距离</b>采样（间距可配置），用亮绿色带颜色粒子画线，
- * 节点位置用更大的红色粒子标记。
+ * 轨迹粒子预览。
  *
- * <p>粒子在客户端只能存活很短时间（约 1 秒），所以预览并不是“放一次就结束”：
- * 在 {@code preview.duration-ticks} 期间每 {@code preview.refresh-ticks} 重新发射一轮，
- * 让整条轨迹持续可见。指令 {@code /camera preview} 与手持工具左键共用这一套逻辑；
- * 同一玩家再次预览会先取消上一次，避免粒子叠加。</p>
+ * <ul>
+ *     <li>普通飞行段：亮绿色带颜色粒子，按固定距离采样。</li>
+ *     <li>“切换”段：灰色粒子从切换节点直线连到下一个节点（表示硬切，不是飞过去）。</li>
+ *     <li>节点标记：默认红色、切换黄色、贝塞尔蓝色。</li>
+ * </ul>
+ *
+ * <p>粒子在客户端只能存活约 1 秒，所以预览在 {@code preview.duration-ticks} 期间
+ * 每 {@code preview.refresh-ticks} 重新发射一轮。指令 {@code /camera preview}
+ * 与手持工具左键共用；同一玩家再次预览会先取消上一次。</p>
  */
 public final class PreviewRenderer {
 
@@ -39,26 +45,33 @@ public final class PreviewRenderer {
      * 绘制一次预览，并在配置的时长内重复发射以维持可见。
      *
      * @param player 触发预览的玩家（用于取消同一玩家的上一次预览），控制台可为 {@code null}
-     * @return 轨迹采样点数量
+     * @return 轨迹采样点数量（不含节点标记）
      */
     public int render(Player player, World world, CameraTrack track) {
-        if (world == null || track == null || track.size() < 2) {
+        if (world == null || track == null) {
             return 0;
         }
-        PathSampler sampler = new PathSampler(track.nodes(), this.plugin.axisTolerance(), track.flow(),
+        List<CameraNode> rawNodes = List.copyOf(track.nodes());
+        PathSampler sampler = new PathSampler(rawNodes, this.plugin.axisTolerance(), track.flow(),
                 this.plugin.arcStrength(), this.plugin.autoArc());
-        if (sampler.total() <= 0.0D) {
-            return 0;
+
+        List<Point> points = new ArrayList<>();
+        for (int i = 0; i < sampler.segmentCount() && points.size() < this.settings.maxPoints(); i++) {
+            if (sampler.isCutSegment(i)) {
+                addStraightLine(points, sampler.nodes().get(i), sampler.nodes().get(i + 1),
+                        this.settings.cutTrailColor(), this.settings.spacing(), this.settings.maxPoints());
+            } else {
+                addTravel(points, sampler, i, this.settings.trailColor(),
+                        this.settings.spacing(), this.settings.maxPoints());
+            }
         }
-        List<Pose> trail = sampleTrail(sampler, this.settings.spacing(), this.settings.maxPoints());
-        List<CameraNode> nodes = List.copyOf(track.nodes());
 
         if (player != null) {
             cancel(player.getUniqueId());
         }
-        spawn(world, trail, nodes);
-        startRefresh(player, world.getName(), trail, nodes);
-        return trail.size();
+        spawn(world, points, rawNodes);
+        startRefresh(player, world.getName(), points, rawNodes);
+        return points.size();
     }
 
     /** 停止所有仍在重发的预览（插件卸载时调用）。 */
@@ -69,7 +82,7 @@ public final class PreviewRenderer {
         this.running.clear();
     }
 
-    private void startRefresh(Player player, String worldName, List<Pose> trail, List<CameraNode> nodes) {
+    private void startRefresh(Player player, String worldName, List<Point> points, List<CameraNode> nodes) {
         int duration = this.settings.durationTicks();
         int refresh = this.settings.refreshTicks();
         if (duration <= refresh) {
@@ -90,7 +103,7 @@ public final class PreviewRenderer {
                     holder[0].cancel();
                     return;
                 }
-                spawn(current, trail, nodes);
+                spawn(current, points, nodes);
                 this.elapsed += refresh;
             }
         }, refresh, refresh);
@@ -106,32 +119,89 @@ public final class PreviewRenderer {
         }
     }
 
-    private void spawn(World world, List<Pose> trail, List<CameraNode> nodes) {
-        Particle.DustOptions trailOptions =
-                new Particle.DustOptions(this.settings.trailColor(), this.settings.trailSize());
-        for (Pose pose : trail) {
-            world.spawnParticle(Particle.DUST, pose.x(), pose.y(), pose.z(),
-                    1, 0.0D, 0.0D, 0.0D, 0.0D, trailOptions);
+    private void spawn(World world, List<Point> points, List<CameraNode> nodes) {
+        Map<Color, Particle.DustOptions> trailOptions = new HashMap<>();
+        for (Point point : points) {
+            world.spawnParticle(Particle.DUST, point.x(), point.y(), point.z(),
+                    1, 0.0D, 0.0D, 0.0D, 0.0D,
+                    dust(trailOptions, point.color(), this.settings.trailSize()));
         }
 
-        Particle.DustOptions nodeOptions =
-                new Particle.DustOptions(this.settings.nodeColor(), this.settings.nodeSize());
+        Map<Color, Particle.DustOptions> nodeOptions = new HashMap<>();
         double spread = this.settings.nodeSpread();
         for (CameraNode node : nodes) {
             world.spawnParticle(Particle.DUST, node.x(), node.y(), node.z(),
-                    this.settings.nodeCount(), spread, spread, spread, 0.0D, nodeOptions);
+                    this.settings.nodeCount(), spread, spread, spread, 0.0D,
+                    dust(nodeOptions, markerColor(node.type()), this.settings.nodeSize()));
+        }
+    }
+
+    private Color markerColor(NodeType type) {
+        return switch (type) {
+            case CUT -> this.settings.cutNodeColor();
+            case BEZIER -> this.settings.bezierNodeColor();
+            case DEFAULT -> this.settings.nodeColor();
+        };
+    }
+
+    private static Particle.DustOptions dust(Map<Color, Particle.DustOptions> cache, Color color, float size) {
+        return cache.computeIfAbsent(color, key -> new Particle.DustOptions(key, size));
+    }
+
+    /** 沿一个飞行段按距离采样，加到预览点列表。 */
+    private static void addTravel(List<Point> points, PathSampler sampler, int segment,
+                                  Color color, double spacing, int maxPoints) {
+        double start = sampler.segmentStart(segment);
+        double end = sampler.segmentEnd(segment);
+        double duration = end - start;
+        if (duration <= 1.0E-9D) {
+            return;
+        }
+        // 用少量采样估算这一段的曲线长度（贝塞尔/弧线比端点直线长），
+        // 否则按端点距离算速度会让弯曲段的粒子间距被放大
+        double length = 0.0D;
+        Pose previous = sampler.at(start);
+        for (int k = 1; k <= 8; k++) {
+            Pose sample = sampler.at(start + duration * k / 8.0D);
+            length += distance(previous, sample);
+            previous = sample;
+        }
+        double speed = length / duration;
+        double step = Math.max(0.005D, Math.min(0.05D, spacing / (Math.max(0.5D, speed) * 2.0D)));
+        Pose last = null;
+        for (double time = start; time <= end + 1.0E-9D && points.size() < maxPoints; time += step) {
+            Pose pose = sampler.at(Math.min(time, end));
+            if (last == null || distance(last, pose) >= spacing) {
+                points.add(new Point(pose.x(), pose.y(), pose.z(), color));
+                last = pose;
+            }
+        }
+        Pose finish = sampler.at(end);
+        if ((last == null || distance(last, finish) > 1.0E-4D) && points.size() < maxPoints) {
+            points.add(new Point(finish.x(), finish.y(), finish.z(), color));
+        }
+    }
+
+    /** “切换”段：用灰色粒子画一条直线，表示瞬间跳转。 */
+    private static void addStraightLine(List<Point> points, CameraNode from, CameraNode to,
+                                        Color color, double spacing, int maxPoints) {
+        double dx = to.x() - from.x();
+        double dy = to.y() - from.y();
+        double dz = to.z() - from.z();
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (distance < 1.0E-6D) {
+            return;
+        }
+        int steps = (int) Math.ceil(distance / Math.max(0.01D, spacing));
+        for (int i = 0; i <= steps && points.size() < maxPoints; i++) {
+            double t = (double) i / Math.max(1, steps);
+            points.add(new Point(from.x() + dx * t, from.y() + dy * t, from.z() + dz * t, color));
         }
     }
 
     /**
-     * 按固定距离对轨迹采样：沿时间轴细采样，再按与上一个输出点的距离抽稀，
-     * 因此轨迹上的粒子间距与镜头速度无关。
-     *
-     * <p>时间步长按“最快的一段”反推（至少每段间距取两个采样点），
-     * 否则高速段落在固定时间步下会直接跨过多个间距，配置的 spacing 就形同虚设。</p>
-     *
-     * @param spacing   相邻粒子间距（格）
-     * @param maxPoints 最多输出多少个点
+     * 按固定距离对整条轨道采样（测试/兼容用）。预览本身按段绘制；
+     * 这个方法的“切换”段会表现为一次跳变。
      */
     public static List<Pose> sampleTrail(PathSampler sampler, double spacing, int maxPoints) {
         double total = sampler.total();
@@ -164,6 +234,9 @@ public final class PreviewRenderer {
         List<CameraNode> nodes = sampler.nodes();
         double fastest = 0.5D;
         for (int i = 0; i < nodes.size() - 1; i++) {
+            if (sampler.isCutSegment(i)) {
+                continue;
+            }
             CameraNode from = nodes.get(i);
             CameraNode to = nodes.get(i + 1);
             double duration = Math.max(0.0D, from.duration());
@@ -183,5 +256,8 @@ public final class PreviewRenderer {
         double dy = first.y() - second.y();
         double dz = first.z() - second.z();
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    private record Point(double x, double y, double z, Color color) {
     }
 }

@@ -53,6 +53,17 @@ final class TeleportRig implements CameraRig {
     }
 
     @Override
+    public void snap(Player player, Pose pose) {
+        World world = Bukkit.getWorld(this.worldName);
+        if (world == null) {
+            return;
+        }
+        player.teleport(toFeet(pose, world));
+        record(pose);
+        this.idleTicks = 0;
+    }
+
+    @Override
     public void detach(Player player) {
         // 无额外状态
     }

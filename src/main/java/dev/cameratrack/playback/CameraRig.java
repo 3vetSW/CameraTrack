@@ -13,6 +13,12 @@ public interface CameraRig {
     /** 每个 tick 调用。 */
     void apply(Player player, Pose pose);
 
+    /**
+     * 硬切到新位姿（“切换”节点）：不做插值，镜头立即跳到目标位置。
+     * 实体运镜会换一个全新的镜头实体，避免客户端把位移插值成一段滑动。
+     */
+    void snap(Player player, Pose pose);
+
     /** 正常结束：先解除镜头控制，再由会话恢复玩家状态。 */
     void detach(Player player);
 

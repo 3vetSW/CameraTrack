@@ -34,6 +34,8 @@ final class PlaybackSession {
     private int elapsedTicks;
     private int cuePointer;
     private boolean ended;
+    /** 上一次应用位姿的时间，用于检测是否跨过“切换”节点。 */
+    private double lastTime;
 
     private Location origin;
     private GameMode previousMode;
@@ -44,19 +46,20 @@ final class PlaybackSession {
     private float previousWalkSpeed;
 
     PlaybackSession(JavaPlugin plugin, PlaybackManager manager, Player player,
-                    List<CameraNode> nodes, double speed, boolean loop, boolean stay,
+                    List<CameraNode> rawNodes, double speed, boolean loop, boolean stay,
                     PlaybackMode mode, boolean flow) {
         this.plugin = plugin;
         this.manager = manager;
         this.playerId = player.getUniqueId();
-        this.nodes = nodes;
-        this.sampler = new PathSampler(nodes, manager.axisTolerance(), flow,
+        this.sampler = new PathSampler(rawNodes, manager.axisTolerance(), flow,
                 manager.arcStrength(), manager.autoArc());
+        // 只对真正会经过的节点（默认 + 切换）触发标题/命令；贝塞尔节点不参与播放
+        this.nodes = this.sampler.nodes();
         this.speed = speed;
         this.loop = loop;
         this.stay = stay;
         this.mode = mode;
-        this.worldName = nodes.get(0).world();
+        this.worldName = rawNodes.get(0).world();
     }
 
     UUID playerId() {
@@ -115,6 +118,8 @@ final class PlaybackSession {
         }
 
         fireCues(player, 0.0D);
+        // -1 让“第一个节点就是切换且 hold=0”的情况在第一个 tick 也能被识别为硬切
+        this.lastTime = -1.0D;
         this.task = Bukkit.getScheduler().runTaskTimer(this.plugin, this::tick, 1L, 1L);
     }
 
@@ -148,18 +153,27 @@ final class PlaybackSession {
 
         this.elapsedTicks++;
         double time = this.elapsedTicks / 20.0D * this.speed;
+        boolean wrapped = false;
         if (time >= total) {
             if (this.loop) {
                 time = time % total;
                 this.cuePointer = 0;
+                wrapped = true;
             } else {
                 end(!this.stay);
                 return;
             }
         }
 
+        boolean snap = wrapped || this.sampler.crossesCut(this.lastTime, time);
         fireCues(player, time);
-        this.rig.apply(player, this.sampler.at(time));
+        Pose pose = this.sampler.at(time);
+        if (snap) {
+            this.rig.snap(player, pose);
+        } else {
+            this.rig.apply(player, pose);
+        }
+        this.lastTime = time;
     }
 
     /**

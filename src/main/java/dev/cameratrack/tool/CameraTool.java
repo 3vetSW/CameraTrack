@@ -5,6 +5,7 @@ import dev.cameratrack.lang.Lang;
 import dev.cameratrack.track.CameraNode;
 import dev.cameratrack.track.CameraTrack;
 import dev.cameratrack.track.Ease;
+import dev.cameratrack.track.NodeType;
 import dev.cameratrack.track.TrackStore;
 import io.papermc.paper.datacomponent.DataComponentTypes;
 import net.kyori.adventure.key.Key;
@@ -242,6 +243,10 @@ public final class CameraTool implements Listener {
                     "path", node.path().id());
             if (!node.command().isBlank()) {
                 line = line.append(this.lang.component(player, "nodes.command", "command", node.command()));
+            }
+            if (node.type() != NodeType.DEFAULT) {
+                line = line.append(this.lang.component(player, "nodes.type",
+                        "type", this.lang.component(player, "gui.node.type." + node.type().id())));
             }
             player.sendMessage(line);
         }

@@ -99,6 +99,46 @@ final class SpectatorRig implements CameraRig {
     }
 
     @Override
+    public void snap(Player player, Pose pose) {
+        World world = Bukkit.getWorld(this.worldName);
+        if (world == null) {
+            return;
+        }
+        // 身体先到目标位置：保证目标区块已加载，新实体不会生成即被卸载
+        player.teleport(new Location(world, pose.x(), pose.y(), pose.z()));
+        ArmorStand previous = this.camera;
+        ArmorStand fresh;
+        try {
+            fresh = spawnCamera(world, pose);
+        } catch (RuntimeException exception) {
+            // 保护插件拒绝生成时退回普通跟随（不硬切，但至少继续播放）
+            apply(player, pose);
+            return;
+        }
+        if (fresh == null) {
+            // 目标区块/保护限制导致无法生成新实体时，退回普通跟随
+            apply(player, pose);
+            return;
+        }
+        // 先让玩家旁观新实体，再移除旧实体，避免中间出现一帧自己的视角
+        player.setSpectatorTarget(fresh);
+        Entity target = player.getSpectatorTarget();
+        if (target == null || !fresh.getUniqueId().equals(target.getUniqueId())) {
+            // 其他插件拒绝了附身切换：清理新实体，保持原来的跟随逻辑
+            fresh.remove();
+            apply(player, pose);
+            return;
+        }
+        this.camera = fresh;
+        this.cameraId = fresh.getUniqueId();
+        this.eyeOffset = fresh.getEyeHeight();
+        this.reinforceTicks = REINFORCE_TICKS;
+        if (previous != null && previous != fresh && !previous.isDead()) {
+            previous.remove();
+        }
+    }
+
+    @Override
     public void detach(Player player) {
         Entity target = player.getSpectatorTarget();
         if (target != null && this.cameraId != null && this.cameraId.equals(target.getUniqueId())) {
@@ -116,11 +156,22 @@ final class SpectatorRig implements CameraRig {
         if (this.camera != null && !this.camera.isDead()) {
             return;
         }
+        ArmorStand stand = spawnCamera(world, pose);
+        if (stand == null) {
+            return;
+        }
+        this.camera = stand;
+        this.cameraId = stand.getUniqueId();
+        this.eyeOffset = stand.getEyeHeight();
+    }
+
+    /** 在世界中生成一个新的镜头实体；区块未加载或生成失败时返回 null。 */
+    private ArmorStand spawnCamera(World world, Pose pose) {
         int chunkX = Location.locToBlock(pose.x()) >> 4;
         int chunkZ = Location.locToBlock(pose.z()) >> 4;
         if (!world.isChunkLoaded(chunkX, chunkZ)) {
             // 区块还没加载时先生成会被立刻卸载，等身体跟上来再生成
-            return;
+            return null;
         }
         Location spawn = new Location(world, pose.x(), pose.y(), pose.z(), pose.yaw(), pose.pitch());
         ArmorStand stand = world.spawn(spawn, ArmorStand.class, entity -> {
@@ -140,10 +191,8 @@ final class SpectatorRig implements CameraRig {
         if (stand == null) {
             throw new IllegalStateException("服务器或保护插件阻止了镜头实体生成");
         }
-        this.camera = stand;
-        this.cameraId = stand.getUniqueId();
-        this.eyeOffset = stand.getEyeHeight();
         stand.teleport(positionFor(pose, world));
+        return stand;
     }
 
     private Location positionFor(Pose pose, World world) {

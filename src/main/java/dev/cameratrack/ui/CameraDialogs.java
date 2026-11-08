@@ -8,8 +8,10 @@ import dev.cameratrack.track.CameraNode;
 import dev.cameratrack.track.CameraTrack;
 import dev.cameratrack.track.Ease;
 import dev.cameratrack.track.NodeTitle;
+import dev.cameratrack.track.NodeType;
 import dev.cameratrack.track.PathMode;
 import dev.cameratrack.track.TrackStore;
+import dev.cameratrack.track.TrackValidator;
 import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
@@ -204,6 +206,9 @@ public final class CameraDialogs {
                 DialogInput.singleOption("path", text(player, "gui.node.input.path"), pathOptions(node.path()))
                         .width(320)
                         .build(),
+                DialogInput.singleOption("type", text(player, "gui.node.input.type"), typeOptions(player, node.type()))
+                        .width(320)
+                        .build(),
                 DialogInput.text("command", text(player, "gui.node.input.command"))
                         .initial(truncate(node.command(), 256))
                         .maxLength(256)
@@ -281,6 +286,7 @@ public final class CameraDialogs {
                 "ease", node.ease().id(),
                 "path", node.path().id()));
         body.add(body(player, "gui.node.body.hint"));
+        body.add(body(player, "gui.node.body.type-hint"));
         body.add(body(player, "gui.node.body.title-hint"));
 
         show(player, dialog(text(player, "gui.node.title", "index", index + 1, "track", name),
@@ -374,12 +380,17 @@ public final class CameraDialogs {
         if (track == null) {
             return;
         }
-        if (track.size() < 2) {
-            this.lang.send(player, "gui.error-min-nodes");
+        TrackValidator.Problem problem = TrackValidator.validate(track);
+        if (problem != null) {
+            this.lang.send(player, problem.key(),
+                    "index", problem.value(), "count", problem.value());
             return;
         }
-        this.playback.start(player, track, 1.0D, track.loop(), !track.returnToStart(),
-                this.plugin.defaultPlaybackMode(), track.flow());
+        if (!this.playback.start(player, track, 1.0D, track.loop(), !track.returnToStart(),
+                this.plugin.defaultPlaybackMode(), track.flow())) {
+            this.lang.send(player, "play.failed");
+            return;
+        }
         this.lang.send(player, "gui.playing", "name", track.name());
     }
 
@@ -432,6 +443,7 @@ public final class CameraDialogs {
         String holdText = view.getText("hold");
         String easeId = view.getText("ease");
         String pathId = view.getText("path");
+        String typeId = view.getText("type");
         String command = view.getText("command");
         String titleText = view.getText("title");
         String subtitleText = view.getText("subtitle");
@@ -491,6 +503,12 @@ public final class CameraDialogs {
             PathMode mode = PathMode.byId(pathId, null);
             if (mode != null) {
                 updated = updated.withPath(mode);
+            }
+        }
+        if (typeId != null) {
+            NodeType type = NodeType.byId(typeId, null);
+            if (type != null) {
+                updated = updated.withType(type);
             }
         }
         if (command != null) {
@@ -618,6 +636,16 @@ public final class CameraDialogs {
         for (PathMode mode : PathMode.values()) {
             options.add(SingleOptionDialogInput.OptionEntry.create(
                     mode.id(), Component.text(mode.id()), mode == current));
+        }
+        return options;
+    }
+
+    /** 节点类型的单选项，标签走语言键（默认 / 切换 / 贝塞尔）。 */
+    private List<SingleOptionDialogInput.OptionEntry> typeOptions(Player player, NodeType current) {
+        List<SingleOptionDialogInput.OptionEntry> options = new ArrayList<>();
+        for (NodeType type : NodeType.values()) {
+            options.add(SingleOptionDialogInput.OptionEntry.create(
+                    type.id(), text(player, "gui.node.type." + type.id()), type == current));
         }
         return options;
     }

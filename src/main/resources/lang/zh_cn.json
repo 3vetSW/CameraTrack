@@ -16,7 +16,7 @@
   "usage.remove": "<red>用法: <white>/<label> remove <名称> <节点序号></white></red>",
   "usage.nodes": "<red>用法: <white>/<label> nodes <名称></white></red>",
   "usage.goto": "<red>用法: <white>/<label> goto <名称> <节点序号></white></red>",
-  "usage.set": "<red>用法: <white>/<label> set <名称> <节点序号> <duration|hold|ease|yaw|pitch|path|command|title|subtitle|title-fade-in|title-stay|title-fade-out> <值></white></red>",
+  "usage.set": "<red>用法: <white>/<label> set <名称> <节点序号> <duration|hold|ease|yaw|pitch|path|type|command|title|subtitle|title-fade-in|title-stay|title-fade-out> <值></white></red>",
   "usage.play": "<red>用法: <white>/<label> play <名称> [速度倍率] [--loop] [--stay] [--return] [--tp] [--segmented]</white></red>",
   "usage.preview": "<red>用法: <white>/<label> preview <名称></white></red>",
 
@@ -64,10 +64,13 @@
 
   "set.ease-invalid": "<red>未知缓动曲线，可选: <white><values></white></red>",
   "set.path-invalid": "<red>未知路径模式，可选: <white><values></white></red>",
-  "set.field-invalid": "<red>未知字段，可选: <white>duration, hold, ease, yaw, pitch, path, command, title, subtitle, title-fade-in, title-stay, title-fade-out</white></red>",
+  "set.type-invalid": "<red>未知节点类型，可选: <white><values></white></red>",
+  "set.field-invalid": "<red>未知字段，可选: <white>duration, hold, ease, yaw, pitch, path, type, command, title, subtitle, title-fade-in, title-stay, title-fade-out</white></red>",
   "set.success": "<gray>节点 <yellow>#<index></yellow> 的 <white><field></white> 已更新。</gray>",
 
-  "play.too-few": "<red>轨道至少需要两个节点才能形成镜头，当前只有 <yellow><count></yellow> 个。</red>",
+  "play.too-few": "<red>轨道至少需要两个可播放节点才能形成镜头，当前只有 <yellow><count></yellow> 个。</red>",
+  "play.invalid.bezier-only": "<red>这条轨道只有贝塞尔节点，无法播放。贝塞尔节点必须夹在两个默认节点之间。</red>",
+  "play.invalid.bezier": "<red>贝塞尔节点 #<index> 的前后必须各有一个“默认”节点（不能位于轨道两端、不能与切换节点相邻，也不能连续出现）。</red>",
   "play.speed-range": "<red>速度倍率需在 0.1 - 20 之间。</red>",
   "play.world-missing": "<red>节点所在世界 <yellow><world></yellow> 未加载。</red>",
   "play.failed": "<red>无法开始播放。</red>",
@@ -117,7 +120,6 @@
   "gui.playing": "<gray>开始播放: <yellow><name></yellow>。</gray>",
   "gui.saved": "<gray>节点 <yellow>#<index></yellow> 已更新。</gray>",
   "gui.error-name": "<red>名称无效或已存在: <value></red>",
-  "gui.error-min-nodes": "<red>轨道至少需要两个节点才能播放。</red>",
   "gui.error-world": "<red>节点所在世界未加载: <world></red>",
   "common.on": "开",
   "common.off": "关",
@@ -163,17 +165,22 @@
   "gui.node.body.pose": "<gray>坐标 <white><x>, <y>, <z></white> · 朝向 yaw <white><yaw></white> / pitch <white><pitch></white></gray>",
   "gui.node.body.current": "<gray>当前：停留 <white><hold>s</white> · 飞行 <white><duration>s</white> · 缓动 <white><ease></white> · 路径 <white><path></white></gray>",
   "gui.node.body.hint": "<gray>修改上面的输入后点“保存设置”。路径 auto 表示同平面走直线、不同平面沿视线弯出弧线。</gray>",
+  "gui.node.body.type-hint": "<gray>类型：默认 = 正常经过；切换 = 停留后直接切到下一节点；贝塞尔 = 不参与播放，只作前后默认节点的控制点。</gray>",
   "gui.node.body.title-hint": "<gray>标题文本支持 MiniMessage 或原版 JSON 文本组件（以 { 开头），两者都支持颜色与翻译键；\\<player> 会替换为你的名字，留空则不显示。</gray>",
   "gui.node.input.duration": "<gray>飞往下一节点（秒，可填小数）</gray>",
   "gui.node.input.hold": "<gray>到达后停留（秒，可填小数）</gray>",
   "gui.node.input.ease": "<gray>缓动曲线</gray>",
   "gui.node.input.path": "<gray>路径模式</gray>",
+  "gui.node.input.type": "<gray>节点类型</gray>",
   "gui.node.input.command": "<gray>到达时执行的命令（可留空）</gray>",
   "gui.node.input.title": "<gray>到达时显示的标题（可留空）</gray>",
   "gui.node.input.subtitle": "<gray>副标题（可留空）</gray>",
   "gui.node.input.fade-in": "<gray>标题淡入（秒）</gray>",
   "gui.node.input.stay": "<gray>标题停留（秒）</gray>",
   "gui.node.input.fade-out": "<gray>标题淡出（秒）</gray>",
+  "gui.node.type.default": "<gray>默认</gray>",
+  "gui.node.type.cut": "<yellow>切换</yellow>",
+  "gui.node.type.bezier": "<blue>贝塞尔</blue>",
   "gui.node.save": "<green>保存设置</green>",
   "gui.node.save.tooltip": "<gray>应用上面的输入</gray>",
   "gui.node.goto": "<aqua>传送到该节点</aqua>",
@@ -207,10 +214,11 @@
 
   "nodes.title": " <dark_gray>|</dark_gray> <gold>标题 <white><title></white></gold>",
   "nodes.subtitle": " <dark_gray>|</dark_gray> <gold>副标题 <white><subtitle></white></gold>",
+  "nodes.type": " <dark_gray>|</dark_gray> <gray>类型 <white><type></white></gray>",
   "title.invalid": "<red>标题文本无法解析（支持 MiniMessage 或原版 JSON 文本组件）: <value></red>",
   "title.range": "<red>标题时间需在 0 - 600 秒之间。</red>",
 
-  "help": "<gold><bold>CameraTrack</bold></gold> <gray>- 自定义摄像轨道</gray>\n<yellow>/<label> create <名称></yellow> <dark_gray>-</dark_gray> <gray>新建轨道</gray>\n<yellow>/<label> add <名称> [秒]</yellow> <dark_gray>-</dark_gray> <gray>在当前位置添加节点（自动连接）</gray>\n<yellow>/<label> insert <名称> <位置> [秒]</yellow> <dark_gray>-</dark_gray> <gray>在指定位置插入节点</gray>\n<yellow>/<label> remove <名称> <序号></yellow> <dark_gray>-</dark_gray> <gray>删除节点</gray>\n<yellow>/<label> nodes <名称></yellow> <dark_gray>-</dark_gray> <gray>查看节点列表</gray>\n<yellow>/<label> set <名称> <序号> <字段> <值></yellow> <dark_gray>-</dark_gray> <gray>修改节点</gray>\n<yellow>/<label> goto <名称> <序号></yellow> <dark_gray>-</dark_gray> <gray>传送到节点</gray>\n<yellow>/<label> play <名称> [速度] [--loop] [--stay] [--return] [--tp] [--segmented]</yellow> <dark_gray>-</dark_gray> <gray>播放</gray>\n<yellow>/<label> stop</yellow> <dark_gray>-</dark_gray> <gray>停止并恢复状态</gray>\n<yellow>/<label> loop <名称> <on|off></yellow> <dark_gray>-</dark_gray> <gray>默认循环</gray>\n<yellow>/<label> flow <名称> <on|off></yellow> <dark_gray>-</dark_gray> <gray>平滑巡航（默认开）</gray>\n<yellow>/<label> return <名称> <on|off></yellow> <dark_gray>-</dark_gray> <gray>播放结束后是否回到起点</gray>\n<yellow>/<label> preview <名称></yellow> <dark_gray>-</dark_gray> <gray>粒子预览轨迹</gray>\n<yellow>/<label> ui [名称]</yellow> <dark_gray>-</dark_gray> <gray>打开可视化编辑界面（Dialog）</gray>\n<yellow>/<label> tool</yellow> <dark_gray>-</dark_gray> <gray>获得手持摄像工具（烈焰棒·望远镜外观）</gray>\n<yellow>/<label> list</yellow> <dark_gray>|</dark_gray> <yellow>info</yellow> <dark_gray>|</dark_gray> <yellow>rename</yellow> <dark_gray>|</dark_gray> <yellow>delete</yellow> <dark_gray>|</dark_gray> <yellow>save</yellow> <dark_gray>|</dark_gray> <yellow>reload</yellow>\n<dark_gray>缓动: </dark_gray><white><eases></white> <dark_gray>|</dark_gray> <gray>「秒」为该节点飞到下一节点的时间</gray>\n<dark_gray>路径: </dark_gray><white>auto</white> <gray>(同平面自动走直线)</gray> <dark_gray>|</dark_gray> <gray>节点 path line/curve/arc 可强制直线、样条或沿视线弧线</gray>"
+  "help": "<gold><bold>CameraTrack</bold></gold> <gray>- 自定义摄像轨道</gray>\n<yellow>/<label> create <名称></yellow> <dark_gray>-</dark_gray> <gray>新建轨道</gray>\n<yellow>/<label> add <名称> [秒]</yellow> <dark_gray>-</dark_gray> <gray>在当前位置添加节点（自动连接）</gray>\n<yellow>/<label> insert <名称> <位置> [秒]</yellow> <dark_gray>-</dark_gray> <gray>在指定位置插入节点</gray>\n<yellow>/<label> remove <名称> <序号></yellow> <dark_gray>-</dark_gray> <gray>删除节点</gray>\n<yellow>/<label> nodes <名称></yellow> <dark_gray>-</dark_gray> <gray>查看节点列表</gray>\n<yellow>/<label> set <名称> <序号> <字段> <值></yellow> <dark_gray>-</dark_gray> <gray>修改节点</gray>\n<yellow>/<label> goto <名称> <序号></yellow> <dark_gray>-</dark_gray> <gray>传送到节点</gray>\n<yellow>/<label> play <名称> [速度] [--loop] [--stay] [--return] [--tp] [--segmented]</yellow> <dark_gray>-</dark_gray> <gray>播放</gray>\n<yellow>/<label> stop</yellow> <dark_gray>-</dark_gray> <gray>停止并恢复状态</gray>\n<yellow>/<label> loop <名称> <on|off></yellow> <dark_gray>-</dark_gray> <gray>默认循环</gray>\n<yellow>/<label> flow <名称> <on|off></yellow> <dark_gray>-</dark_gray> <gray>平滑巡航（默认开）</gray>\n<yellow>/<label> return <名称> <on|off></yellow> <dark_gray>-</dark_gray> <gray>播放结束后是否回到起点</gray>\n<yellow>/<label> preview <名称></yellow> <dark_gray>-</dark_gray> <gray>粒子预览轨迹</gray>\n<yellow>/<label> ui [名称]</yellow> <dark_gray>-</dark_gray> <gray>打开可视化编辑界面（Dialog）</gray>\n<yellow>/<label> tool</yellow> <dark_gray>-</dark_gray> <gray>获得手持摄像工具（烈焰棒·望远镜外观）</gray>\n<yellow>/<label> list</yellow> <dark_gray>|</dark_gray> <yellow>info</yellow> <dark_gray>|</dark_gray> <yellow>rename</yellow> <dark_gray>|</dark_gray> <yellow>delete</yellow> <dark_gray>|</dark_gray> <yellow>save</yellow> <dark_gray>|</dark_gray> <yellow>reload</yellow>\n<dark_gray>缓动: </dark_gray><white><eases></white> <dark_gray>|</dark_gray> <gray>「秒」为该节点飞到下一节点的时间</gray>\n<dark_gray>路径: </dark_gray><white>auto</white> <gray>(同平面自动走直线)</gray> <dark_gray>|</dark_gray> <gray>节点 path line/curve/arc 可强制直线、样条或沿视线弧线</gray>\n<dark_gray>类型: </dark_gray><white>default</white> <gray>(正常经过)</gray> <dark_gray>|</dark_gray> <white>cut</white> <gray>(直接切下一节点)</gray> <dark_gray>|</dark_gray> <white>bezier</white> <gray>(贝塞尔控制点)</gray>"
 }
 
 

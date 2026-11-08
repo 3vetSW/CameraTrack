@@ -16,7 +16,7 @@
   "usage.remove": "<red>Usage: <white>/<label> remove <name> <node></white></red>",
   "usage.nodes": "<red>Usage: <white>/<label> nodes <name></white></red>",
   "usage.goto": "<red>Usage: <white>/<label> goto <name> <node></white></red>",
-  "usage.set": "<red>Usage: <white>/<label> set <name> <node> <duration|hold|ease|yaw|pitch|path|command|title|subtitle|title-fade-in|title-stay|title-fade-out> <value></white></red>",
+  "usage.set": "<red>Usage: <white>/<label> set <name> <node> <duration|hold|ease|yaw|pitch|path|type|command|title|subtitle|title-fade-in|title-stay|title-fade-out> <value></white></red>",
   "usage.play": "<red>Usage: <white>/<label> play <name> [speed] [--loop] [--stay] [--return] [--tp] [--segmented]</white></red>",
   "usage.preview": "<red>Usage: <white>/<label> preview <name></white></red>",
 
@@ -64,10 +64,13 @@
 
   "set.ease-invalid": "<red>Unknown easing. Available: <white><values></white></red>",
   "set.path-invalid": "<red>Unknown path mode. Available: <white><values></white></red>",
-  "set.field-invalid": "<red>Unknown field. Available: <white>duration, hold, ease, yaw, pitch, path, command, title, subtitle, title-fade-in, title-stay, title-fade-out</white></red>",
+  "set.type-invalid": "<red>Unknown node type. Available: <white><values></white></red>",
+  "set.field-invalid": "<red>Unknown field. Available: <white>duration, hold, ease, yaw, pitch, path, type, command, title, subtitle, title-fade-in, title-stay, title-fade-out</white></red>",
   "set.success": "<gray>Field <white><field></white> of node <yellow>#<index></yellow> updated.</gray>",
 
-  "play.too-few": "<red>A track needs at least two nodes; this one has <yellow><count></yellow>.</red>",
+  "play.too-few": "<red>A track needs at least two playable nodes; this one has <yellow><count></yellow>.</red>",
+  "play.invalid.bezier-only": "<red>This track contains only Bezier nodes and cannot be played. A Bezier node must sit between two default nodes.</red>",
+  "play.invalid.bezier": "<red>Bezier node #<index> must have a default node immediately before and after it (not at either end, not next to a cut node, and not adjacent to another Bezier node).</red>",
   "play.speed-range": "<red>Speed must be between 0.1 and 20.</red>",
   "play.world-missing": "<red>World <yellow><world></yellow> is not loaded.</red>",
   "play.failed": "<red>Could not start playback.</red>",
@@ -117,7 +120,6 @@
   "gui.playing": "<gray>Playing <yellow><name></yellow>.</gray>",
   "gui.saved": "<gray>Node <yellow>#<index></yellow> updated.</gray>",
   "gui.error-name": "<red>Invalid or duplicate name: <value></red>",
-  "gui.error-min-nodes": "<red>A track needs at least two nodes to play.</red>",
   "gui.error-world": "<red>The node world is not loaded: <world></red>",
   "common.on": "on",
   "common.off": "off",
@@ -163,17 +165,22 @@
   "gui.node.body.pose": "<gray>position <white><x>, <y>, <z></white> · rotation yaw <white><yaw></white> / pitch <white><pitch></white></gray>",
   "gui.node.body.current": "<gray>now: hold <white><hold>s</white> · fly <white><duration>s</white> · ease <white><ease></white> · path <white><path></white></gray>",
   "gui.node.body.hint": "<gray>Change the inputs and press “Save settings”. Path auto means a straight line on the same plane and a view arc otherwise.</gray>",
+  "gui.node.body.type-hint": "<gray>Type: Default = passed normally; Cut = jump straight to the next node after the hold; Bezier = never played, only a control point between two default nodes.</gray>",
   "gui.node.body.title-hint": "<gray>Title text accepts MiniMessage or a vanilla JSON text component (starting with {); both support colors and translation keys. \\<player> is replaced with your name; leave empty to show nothing.</gray>",
   "gui.node.input.duration": "<gray>Fly to next node (seconds, decimals allowed)</gray>",
   "gui.node.input.hold": "<gray>Hold on arrival (seconds, decimals allowed)</gray>",
   "gui.node.input.ease": "<gray>Easing curve</gray>",
   "gui.node.input.path": "<gray>Path mode</gray>",
+  "gui.node.input.type": "<gray>Node type</gray>",
   "gui.node.input.command": "<gray>Command on arrival (optional)</gray>",
   "gui.node.input.title": "<gray>Title on arrival (optional)</gray>",
   "gui.node.input.subtitle": "<gray>Subtitle (optional)</gray>",
   "gui.node.input.fade-in": "<gray>Title fade-in (seconds)</gray>",
   "gui.node.input.stay": "<gray>Title stay (seconds)</gray>",
   "gui.node.input.fade-out": "<gray>Title fade-out (seconds)</gray>",
+  "gui.node.type.default": "<gray>Default</gray>",
+  "gui.node.type.cut": "<yellow>Cut</yellow>",
+  "gui.node.type.bezier": "<blue>Bezier</blue>",
   "gui.node.save": "<green>Save settings</green>",
   "gui.node.save.tooltip": "<gray>Apply the inputs above</gray>",
   "gui.node.goto": "<aqua>Teleport to node</aqua>",
@@ -207,10 +214,11 @@
 
   "nodes.title": " <dark_gray>|</dark_gray> <gold>title <white><title></white></gold>",
   "nodes.subtitle": " <dark_gray>|</dark_gray> <gold>subtitle <white><subtitle></white></gold>",
+  "nodes.type": " <dark_gray>|</dark_gray> <gray>type <white><type></white></gray>",
   "title.invalid": "<red>Could not parse title text (MiniMessage or a vanilla JSON text component): <value></red>",
   "title.range": "<red>Title times must be between 0 and 600 seconds.</red>",
 
-  "help": "<gold><bold>CameraTrack</bold></gold> <gray>- cinematic camera tracks</gray>\n<yellow>/<label> create <name></yellow> <dark_gray>-</dark_gray> <gray>create a track</gray>\n<yellow>/<label> add <name> [seconds]</yellow> <dark_gray>-</dark_gray> <gray>add a node at your position</gray>\n<yellow>/<label> insert <name> <position> [seconds]</yellow> <dark_gray>-</dark_gray> <gray>insert a node</gray>\n<yellow>/<label> remove <name> <node></yellow> <dark_gray>-</dark_gray> <gray>remove a node</gray>\n<yellow>/<label> nodes <name></yellow> <dark_gray>-</dark_gray> <gray>list nodes</gray>\n<yellow>/<label> set <name> <node> <field> <value></yellow> <dark_gray>-</dark_gray> <gray>edit a node</gray>\n<yellow>/<label> goto <name> <node></yellow> <dark_gray>-</dark_gray> <gray>teleport to a node</gray>\n<yellow>/<label> play <name> [speed] [--loop] [--stay] [--return] [--tp] [--segmented]</yellow> <dark_gray>-</dark_gray> <gray>play a track</gray>\n<yellow>/<label> stop</yellow> <dark_gray>-</dark_gray> <gray>stop and restore state</gray>\n<yellow>/<label> loop <name> <on|off></yellow> <dark_gray>-</dark_gray> <gray>default loop</gray>\n<yellow>/<label> flow <name> <on|off></yellow> <dark_gray>-</dark_gray> <gray>smooth flow (default on)</gray>\n<yellow>/<label> return <name> <on|off></yellow> <dark_gray>-</dark_gray> <gray>return to start after playback</gray>\n<yellow>/<label> preview <name></yellow> <dark_gray>-</dark_gray> <gray>particle preview</gray>\n<yellow>/<label> ui [name]</yellow> <dark_gray>-</dark_gray> <gray>open the dialog editor</gray>\n<yellow>/<label> tool</yellow> <dark_gray>-</dark_gray> <gray>get the handheld camera tool</gray>\n<yellow>/<label> list</yellow> <dark_gray>|</dark_gray> <yellow>info</yellow> <dark_gray>|</dark_gray> <yellow>rename</yellow> <dark_gray>|</dark_gray> <yellow>delete</yellow> <dark_gray>|</dark_gray> <yellow>save</yellow> <dark_gray>|</dark_gray> <yellow>reload</yellow>\n<dark_gray>Easing: </dark_gray><white><eases></white> <dark_gray>|</dark_gray> <gray>\"seconds\" is the flight time to the next node</gray>\n<dark_gray>Path: </dark_gray><white>auto</white> <gray>(straight when co-planar)</gray> <dark_gray>|</dark_gray> <gray>set node path to line/curve/arc to force it</gray>"
+  "help": "<gold><bold>CameraTrack</bold></gold> <gray>- cinematic camera tracks</gray>\n<yellow>/<label> create <name></yellow> <dark_gray>-</dark_gray> <gray>create a track</gray>\n<yellow>/<label> add <name> [seconds]</yellow> <dark_gray>-</dark_gray> <gray>add a node at your position</gray>\n<yellow>/<label> insert <name> <position> [seconds]</yellow> <dark_gray>-</dark_gray> <gray>insert a node</gray>\n<yellow>/<label> remove <name> <node></yellow> <dark_gray>-</dark_gray> <gray>remove a node</gray>\n<yellow>/<label> nodes <name></yellow> <dark_gray>-</dark_gray> <gray>list nodes</gray>\n<yellow>/<label> set <name> <node> <field> <value></yellow> <dark_gray>-</dark_gray> <gray>edit a node</gray>\n<yellow>/<label> goto <name> <node></yellow> <dark_gray>-</dark_gray> <gray>teleport to a node</gray>\n<yellow>/<label> play <name> [speed] [--loop] [--stay] [--return] [--tp] [--segmented]</yellow> <dark_gray>-</dark_gray> <gray>play a track</gray>\n<yellow>/<label> stop</yellow> <dark_gray>-</dark_gray> <gray>stop and restore state</gray>\n<yellow>/<label> loop <name> <on|off></yellow> <dark_gray>-</dark_gray> <gray>default loop</gray>\n<yellow>/<label> flow <name> <on|off></yellow> <dark_gray>-</dark_gray> <gray>smooth flow (default on)</gray>\n<yellow>/<label> return <name> <on|off></yellow> <dark_gray>-</dark_gray> <gray>return to start after playback</gray>\n<yellow>/<label> preview <name></yellow> <dark_gray>-</dark_gray> <gray>particle preview</gray>\n<yellow>/<label> ui [name]</yellow> <dark_gray>-</dark_gray> <gray>open the dialog editor</gray>\n<yellow>/<label> tool</yellow> <dark_gray>-</dark_gray> <gray>get the handheld camera tool</gray>\n<yellow>/<label> list</yellow> <dark_gray>|</dark_gray> <yellow>info</yellow> <dark_gray>|</dark_gray> <yellow>rename</yellow> <dark_gray>|</dark_gray> <yellow>delete</yellow> <dark_gray>|</dark_gray> <yellow>save</yellow> <dark_gray>|</dark_gray> <yellow>reload</yellow>\n<dark_gray>Easing: </dark_gray><white><eases></white> <dark_gray>|</dark_gray> <gray>\"seconds\" is the flight time to the next node</gray>\n<dark_gray>Path: </dark_gray><white>auto</white> <gray>(straight when co-planar)</gray> <dark_gray>|</dark_gray> <gray>set node path to line/curve/arc to force it</gray>\n<dark_gray>Type: </dark_gray><white>default</white> <gray>(normal)</gray> <dark_gray>|</dark_gray> <white>cut</white> <gray>(jump to next node)</gray> <dark_gray>|</dark_gray> <white>bezier</white> <gray>(control point)</gray>"
 }
 
 

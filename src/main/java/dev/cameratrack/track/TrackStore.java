@@ -71,6 +71,7 @@ public final class TrackStore {
         Object world = map.get("world");
         Object ease = map.get("ease");
         Object path = map.get("path");
+        Object type = map.get("type");
         return new CameraNode(
                 world == null ? "world" : world.toString(),
                 asDouble(map.get("x"), 0.0D),
@@ -83,7 +84,8 @@ public final class TrackStore {
                 Ease.byId(ease == null ? "smooth" : ease.toString(), Ease.SMOOTH),
                 PathMode.byId(path == null ? "auto" : path.toString(), PathMode.AUTO),
                 command == null ? "" : command.toString(),
-                readTitle(map.get("title"))
+                readTitle(map.get("title")),
+                NodeType.byId(type == null ? "default" : type.toString(), NodeType.DEFAULT)
         );
     }
 
@@ -146,6 +148,9 @@ public final class TrackStore {
                 entry.put("ease", node.ease().id());
                 if (node.path() != PathMode.AUTO) {
                     entry.put("path", node.path().id());
+                }
+                if (node.type() != NodeType.DEFAULT) {
+                    entry.put("type", node.type().id());
                 }
                 if (!node.command().isBlank()) {
                     entry.put("command", node.command());

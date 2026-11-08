@@ -83,16 +83,39 @@ public final class CameraTrack {
         this.nodes.set(index, node);
     }
 
-    /** 整条轨道播放一遍的时长（含每个节点的停留）。 */
+    /** 整条轨道播放一遍的时长（含每个可播放节点的停留；贝塞尔节点不参与）。 */
     public double totalDuration() {
-        int count = this.nodes.size();
-        if (count == 0) {
-            return 0.0D;
-        }
-        double total = this.nodes.get(count - 1).hold();
-        for (int i = 0; i < count - 1; i++) {
-            total += this.nodes.get(i).hold() + Math.max(0.0D, this.nodes.get(i).duration());
+        double total = 0.0D;
+        for (int i = 0; i < this.nodes.size(); i++) {
+            CameraNode node = this.nodes.get(i);
+            if (node.type() == NodeType.BEZIER) {
+                continue;
+            }
+            total += node.hold();
+            if (node.type() != NodeType.CUT && hasNextPlayable(i)) {
+                total += Math.max(0.0D, node.duration());
+            }
         }
         return total;
+    }
+
+    /** 播放时真正会经过的节点（排除贝塞尔控制点）。 */
+    public List<CameraNode> playableNodes() {
+        List<CameraNode> result = new ArrayList<>();
+        for (CameraNode node : this.nodes) {
+            if (node.type() != NodeType.BEZIER) {
+                result.add(node);
+            }
+        }
+        return result;
+    }
+
+    private boolean hasNextPlayable(int index) {
+        for (int i = index + 1; i < this.nodes.size(); i++) {
+            if (this.nodes.get(i).type() != NodeType.BEZIER) {
+                return true;
+            }
+        }
+        return false;
     }
 }

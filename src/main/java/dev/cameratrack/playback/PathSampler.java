@@ -1,31 +1,25 @@
 package dev.cameratrack.playback;
 
 import dev.cameratrack.track.CameraNode;
+import dev.cameratrack.track.NodeType;
 import dev.cameratrack.track.PathMode;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 把节点列表采样成连续的相机轨迹。
+ * 把节点列表编译成可播放的时间轴并采样相机位姿。
  *
- * <p>两种时间模型：</p>
+ * <p>节点类型会改变时间轴：</p>
  * <ul>
- *     <li><b>flow（平滑巡航，默认）</b>：位置和朝向都用“以时间为参数的三次 Hermite 样条”连接，
- *     节点只是曲线上的通过点，速度在节点处连续；只在起点、终点和带停留（hold）的节点处
- *     自然减速到 0。这样曲线轨道不会在每个节点“停一下再走”，转动也不会一顿一顿。</li>
- *     <li><b>segmented（逐段缓动）</b>：每一段单独应用 {@code ease}，朝向用 smoothstep，
- *     段与段之间会有速度归零的“节点停顿”感；需要精确控制每一段节奏时使用。</li>
+ *     <li><b>默认</b>：正常经过，按 {@link PathMode} 连接下一个可播放节点。</li>
+ *     <li><b>切换</b>：停留结束后直接切到下一个节点，不占飞行时间，预览为灰色直线。</li>
+ *     <li><b>贝塞尔</b>：不参与播放，只作为前后两个默认节点之间的二次贝塞尔控制点。</li>
  * </ul>
  *
- * <p>位置在同平面段（或 {@code path line}）上仍然保持直线；朝向始终按最短弧展开后做样条，
- * 避免 ±180° 处的绕圈。</p>
- *
- * <p><b>沿视线的弧线（arc）</b>：只有两个节点的轨道，样条会退化成一条直线
- * （起点/终点切线为 0）。把节点 {@code path} 设为 {@code arc}（或打开
- * {@code path.auto-arc} 让两点轨道自动这样做），这一段会变成一条<b>单侧弧线</b>：
- * 在连线中点朝“视线反方向”鼓出，形成完整的一段弧，而不是两端各鼓一次的 S 形。
- * 多点轨道仍然由邻居切线样条连接，本身就是连续曲线。</p>
+ * <p>两种时间模型：flow（平滑巡航，默认，位置/朝向用时间 Hermite 样条）与
+ * segmented（逐段缓动，每段应用 ease）。位置在同平面段（或 {@code path line}）
+ * 上保持直线；两点轨道的非共面自动段会补一段单侧弧线。</p>
  */
 public final class PathSampler {
 
@@ -34,7 +28,13 @@ public final class PathSampler {
     /** 默认让两点轨道（非共面）自动补一段弧线。 */
     public static final boolean DEFAULT_AUTO_ARC = true;
 
+    /** 实际参与播放的节点（默认 + 切换，按原顺序）。 */
     private final List<CameraNode> nodes;
+    /** bezierControls[i] = 第 i→i+1 段可选的贝塞尔控制点，null 表示普通连接。 */
+    private final double[][] bezierControls;
+    /** cutSegments[i] = 第 i 个可播放节点是否用“切换”接续下一节点。 */
+    private final boolean[] cutSegments;
+
     /** starts[i] = 到达节点 i 并开始停留的绝对时间（秒）。 */
     private final double[] starts;
     private final double total;
@@ -51,20 +51,45 @@ public final class PathSampler {
     private final double[] slopeYaw;
     private final double[] slopePitch;
 
-    public PathSampler(List<CameraNode> nodes, double axisTolerance, boolean flow,
+    public PathSampler(List<CameraNode> rawNodes, double axisTolerance, boolean flow,
                        double arcStrength, boolean autoArc) {
-        this.nodes = List.copyOf(nodes);
         this.axisTolerance = Math.max(0.0D, axisTolerance);
         this.flow = flow;
         this.arcStrength = Math.max(0.0D, Math.min(0.5D, arcStrength));
         this.autoArc = autoArc;
+
+        List<CameraNode> stops = new ArrayList<>();
+        List<double[]> controls = new ArrayList<>();
+        boolean pendingBezier = false;
+        double[] pendingControl = null;
+        for (CameraNode node : rawNodes) {
+            if (node.type() == NodeType.BEZIER) {
+                pendingBezier = true;
+                pendingControl = new double[]{node.x(), node.y(), node.z()};
+                continue;
+            }
+            if (!stops.isEmpty()) {
+                controls.add(pendingBezier ? pendingControl : null);
+            }
+            stops.add(node);
+            pendingBezier = false;
+            pendingControl = null;
+        }
+        this.nodes = List.copyOf(stops);
+        this.bezierControls = controls.toArray(new double[0][]);
+
         int count = this.nodes.size();
+        this.cutSegments = new boolean[count];
+        for (int i = 0; i < count - 1; i++) {
+            this.cutSegments[i] = this.nodes.get(i).type() == NodeType.CUT;
+        }
+
         this.starts = new double[count];
         double cursor = 0.0D;
         for (int i = 0; i < count; i++) {
             this.starts[i] = cursor;
             cursor += this.nodes.get(i).hold();
-            if (i < count - 1) {
+            if (i < count - 1 && !this.cutSegments[i]) {
                 cursor += Math.max(0.0D, this.nodes.get(i).duration());
             }
         }
@@ -88,25 +113,26 @@ public final class PathSampler {
         }
     }
 
-    public PathSampler(List<CameraNode> nodes, double axisTolerance, boolean flow) {
-        this(nodes, axisTolerance, flow, DEFAULT_ARC_STRENGTH, DEFAULT_AUTO_ARC);
+    public PathSampler(List<CameraNode> rawNodes, double axisTolerance, boolean flow) {
+        this(rawNodes, axisTolerance, flow, DEFAULT_ARC_STRENGTH, DEFAULT_AUTO_ARC);
     }
 
-    public PathSampler(List<CameraNode> nodes, double axisTolerance) {
-        this(nodes, axisTolerance, false);
+    public PathSampler(List<CameraNode> rawNodes, double axisTolerance) {
+        this(rawNodes, axisTolerance, false);
     }
 
     private void computeFlowSlopes() {
         int count = this.nodes.size();
         this.unwrappedYaw[0] = this.nodes.get(0).yaw();
         for (int i = 1; i < count; i++) {
-            double previous = this.nodes.get(i - 1).yaw();
-            double current = this.nodes.get(i).yaw();
-            this.unwrappedYaw[i] = this.unwrappedYaw[i - 1] + shortestDelta(previous, current);
+            this.unwrappedYaw[i] = this.unwrappedYaw[i - 1]
+                    + shortestDelta(this.nodes.get(i - 1).yaw(), this.nodes.get(i).yaw());
         }
         for (int i = 0; i < count; i++) {
             CameraNode node = this.nodes.get(i);
-            boolean stop = i == 0 || i == count - 1 || node.hold() > 1.0E-9D;
+            boolean afterCut = i > 0 && this.nodes.get(i - 1).type() == NodeType.CUT;
+            boolean stop = i == 0 || i == count - 1 || node.hold() > 1.0E-9D
+                    || node.type() == NodeType.CUT || afterCut;
             if (stop) {
                 continue;
             }
@@ -134,6 +160,51 @@ public final class PathSampler {
 
     public double[] starts() {
         return this.starts;
+    }
+
+    public int segmentCount() {
+        return Math.max(0, this.nodes.size() - 1);
+    }
+
+    public boolean isCutSegment(int index) {
+        return index >= 0 && index < this.cutSegments.length && this.cutSegments[index];
+    }
+
+    public boolean isBezierSegment(int index) {
+        return index >= 0 && index < this.bezierControls.length && this.bezierControls[index] != null;
+    }
+
+    /** 第 index 段飞行/切换开始的时间（即起点节点停留结束）。 */
+    public double segmentStart(int index) {
+        if (index < 0 || index >= segmentCount()) {
+            return this.total;
+        }
+        return this.starts[index] + this.nodes.get(index).hold();
+    }
+
+    /** 第 index 段结束、到达下一节点的时间。 */
+    public double segmentEnd(int index) {
+        if (index < 0 || index >= segmentCount()) {
+            return this.total;
+        }
+        return this.starts[index + 1];
+    }
+
+    /** (from, to] 区间内是否跨过至少一次“切换”。 */
+    public boolean crossesCut(double from, double to) {
+        if (to <= from) {
+            return false;
+        }
+        for (int i = 0; i < segmentCount(); i++) {
+            if (!this.cutSegments[i]) {
+                continue;
+            }
+            double boundary = this.starts[i + 1];
+            if (boundary > from + 1.0E-9D && boundary <= to + 1.0E-9D) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public double axisTolerance() {
@@ -166,7 +237,7 @@ public final class PathSampler {
         double time = Math.max(0.0D, Math.min(seconds, this.total));
 
         int index = 0;
-        for (int i = count - 2; i >= 0; i--) {
+        for (int i = count - 1; i >= 0; i--) {
             if (time >= this.starts[i]) {
                 index = i;
                 break;
@@ -175,7 +246,7 @@ public final class PathSampler {
 
         CameraNode node = this.nodes.get(index);
         double holdEnd = this.starts[index] + node.hold();
-        if (time < holdEnd) {
+        if (time < holdEnd || index >= count - 1 || this.cutSegments[index]) {
             return poseOf(node);
         }
         double duration = Math.max(1.0E-6D, node.duration());
@@ -196,7 +267,12 @@ public final class PathSampler {
         double x;
         double y;
         double z;
-        if (effectiveMode(index) == PathMode.ARC) {
+        if (this.bezierControls[index] != null) {
+            double[] bezier = bezierPosition(index, u);
+            x = bezier[0];
+            y = bezier[1];
+            z = bezier[2];
+        } else if (effectiveMode(index) == PathMode.ARC) {
             double[] arc = arcPosition(index, u);
             x = arc[0];
             y = arc[1];
@@ -237,7 +313,12 @@ public final class PathSampler {
         double x;
         double y;
         double z;
-        if (effectiveMode(index) == PathMode.ARC) {
+        if (this.bezierControls[index] != null) {
+            double[] bezier = bezierPosition(index, s);
+            x = bezier[0];
+            y = bezier[1];
+            z = bezier[2];
+        } else if (effectiveMode(index) == PathMode.ARC) {
             double[] arc = arcPosition(index, s);
             x = arc[0];
             y = arc[1];
@@ -258,6 +339,18 @@ public final class PathSampler {
         float yaw = lerpAngle(p1.yaw(), p2.yaw(), rotation);
         float pitch = (float) (p1.pitch() + (p2.pitch() - p1.pitch()) * rotation);
         return new Pose(x, y, z, yaw, Math.max(-90.0F, Math.min(90.0F, pitch)));
+    }
+
+    private double[] bezierPosition(int index, double u) {
+        CameraNode from = this.nodes.get(index);
+        CameraNode to = this.nodes.get(index + 1);
+        double[] control = this.bezierControls[index];
+        double v = 1.0D - u;
+        return new double[]{
+                v * v * from.x() + 2.0D * v * u * control[0] + u * u * to.x(),
+                v * v * from.y() + 2.0D * v * u * control[1] + u * u * to.y(),
+                v * v * from.z() + 2.0D * v * u * control[2] + u * u * to.z()
+        };
     }
 
     private static double catmullRom(double p0, double p1, double p2, double p3, double t) {
@@ -305,7 +398,7 @@ public final class PathSampler {
 
     /** 只有“两点轨道”的非共面段会退化成正线，才需要自动补弧线。 */
     private boolean shouldAutoArc(int index) {
-        if (this.nodes.size() != 2 || isSamePlane(index)) {
+        if (this.nodes.size() != 2 || this.bezierControls[index] != null || isSamePlane(index)) {
             return false;
         }
         CameraNode from = this.nodes.get(index);

@@ -9,8 +9,10 @@ import dev.cameratrack.track.CameraNode;
 import dev.cameratrack.track.CameraTrack;
 import dev.cameratrack.track.Ease;
 import dev.cameratrack.track.NodeTitle;
+import dev.cameratrack.track.NodeType;
 import dev.cameratrack.track.PathMode;
 import dev.cameratrack.track.TrackStore;
+import dev.cameratrack.track.TrackValidator;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -405,6 +407,10 @@ public final class CameraCommand implements TabExecutor {
                     line = line.append(this.lang.component(sender, "nodes.subtitle", "subtitle", shorten(title.subtitle())));
                 }
             }
+            if (node.type() != NodeType.DEFAULT) {
+                line = line.append(this.lang.component(sender, "nodes.type",
+                        "type", this.lang.component(sender, "gui.node.type." + node.type().id())));
+            }
             sender.sendMessage(line);
         }
     }
@@ -563,6 +569,14 @@ public final class CameraCommand implements TabExecutor {
                 }
                 updated = node.withPath(pathMode);
             }
+            case "type" -> {
+                NodeType nodeType = NodeType.byId(value, null);
+                if (nodeType == null) {
+                    this.lang.send(sender, "set.type-invalid", "values", NodeType.ids());
+                    return;
+                }
+                updated = node.withType(nodeType);
+            }
             default -> {
                 this.lang.send(sender, "set.field-invalid");
                 return;
@@ -592,8 +606,9 @@ public final class CameraCommand implements TabExecutor {
         if (track == null) {
             return;
         }
-        if (track.size() < 2) {
-            this.lang.send(sender, "play.too-few", "count", track.size());
+        TrackValidator.Problem problem = TrackValidator.validate(track);
+        if (problem != null) {
+            this.lang.send(sender, problem.key(), "index", problem.value(), "count", problem.value());
             return;
         }
 
@@ -640,7 +655,7 @@ public final class CameraCommand implements TabExecutor {
         }
         this.lang.send(sender, "play.started",
                 "name", track.name(),
-                "nodes", track.size(),
+                "nodes", track.playableNodes().size(),
                 "duration", format(track.totalDuration()),
                 "speed", format(speed),
                 "mode", this.lang.component(sender, mode == PlaybackMode.SPECTATOR_ENTITY
@@ -902,7 +917,7 @@ public final class CameraCommand implements TabExecutor {
         }
 
         if (args.length == 4 && sub.equals("set")) {
-            return filter(List.of("duration", "hold", "ease", "yaw", "pitch", "path", "command",
+            return filter(List.of("duration", "hold", "ease", "yaw", "pitch", "path", "type", "command",
                     "title", "subtitle", "title-fade-in", "title-stay", "title-fade-out"), args[3]);
         }
         if (args.length == 5 && sub.equals("set")) {
@@ -918,6 +933,13 @@ public final class CameraCommand implements TabExecutor {
                 List<String> ids = new ArrayList<>();
                 for (PathMode pathMode : PathMode.values()) {
                     ids.add(pathMode.id());
+                }
+                return filter(ids, args[4]);
+            }
+            if (field.equals("type")) {
+                List<String> ids = new ArrayList<>();
+                for (NodeType type : NodeType.values()) {
+                    ids.add(type.id());
                 }
                 return filter(ids, args[4]);
             }

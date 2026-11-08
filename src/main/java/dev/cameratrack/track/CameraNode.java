@@ -16,11 +16,12 @@ import java.util.Objects;
  * @param yaw      水平朝向
  * @param pitch    垂直朝向
  * @param hold     到达该节点后停留的秒数
- * @param duration 从该节点飞到下一个节点所需的秒数
+ * @param duration 从该节点飞到下一个节点所需的秒数（切换节点不使用）
  * @param ease     这一段的缓动曲线
- * @param path     这一段的路径插值方式（自动 / 直线 / 样条）
+ * @param path     这一段的路径插值方式（自动 / 直线 / 样条 / 弧线）
  * @param command  到达该节点时以控制台身份执行的指令（可留空，用于音效/粒子等演出）
  * @param title    到达该节点时显示在屏幕上的标题（可留空，见 {@link NodeTitle}）
+ * @param type     节点类型：默认经过 / 切换 / 贝塞尔控制点（见 {@link NodeType}）
  */
 public record CameraNode(
         String world,
@@ -31,7 +32,8 @@ public record CameraNode(
         Ease ease,
         PathMode path,
         String command,
-        NodeTitle title
+        NodeTitle title,
+        NodeType type
 ) {
 
     public static final double DEFAULT_HOLD = 0.0D;
@@ -47,6 +49,9 @@ public record CameraNode(
         if (title == null) {
             title = NodeTitle.EMPTY;
         }
+        if (type == null) {
+            type = NodeType.DEFAULT;
+        }
         hold = Math.max(0.0D, hold);
         duration = Math.max(0.0D, duration);
     }
@@ -57,7 +62,7 @@ public record CameraNode(
                 location.getWorld().getName(),
                 location.getX(), location.getY(), location.getZ(),
                 location.getYaw(), location.getPitch(),
-                hold, duration, ease, PathMode.AUTO, command, NodeTitle.EMPTY
+                hold, duration, ease, PathMode.AUTO, command, NodeTitle.EMPTY, NodeType.DEFAULT
         );
     }
 
@@ -75,42 +80,48 @@ public record CameraNode(
         return new CameraNode(location.getWorld().getName(),
                 location.getX(), location.getY(), location.getZ(),
                 location.getYaw(), location.getPitch(),
-                this.hold, this.duration, this.ease, this.path, this.command, this.title);
+                this.hold, this.duration, this.ease, this.path, this.command, this.title, this.type);
     }
 
     public CameraNode withDuration(double value) {
         return new CameraNode(this.world, this.x, this.y, this.z, this.yaw, this.pitch,
-                this.hold, value, this.ease, this.path, this.command, this.title);
+                this.hold, value, this.ease, this.path, this.command, this.title, this.type);
     }
 
     public CameraNode withHold(double value) {
         return new CameraNode(this.world, this.x, this.y, this.z, this.yaw, this.pitch,
-                value, this.duration, this.ease, this.path, this.command, this.title);
+                value, this.duration, this.ease, this.path, this.command, this.title, this.type);
     }
 
     public CameraNode withEase(Ease value) {
         return new CameraNode(this.world, this.x, this.y, this.z, this.yaw, this.pitch,
-                this.hold, this.duration, value, this.path, this.command, this.title);
+                this.hold, this.duration, value, this.path, this.command, this.title, this.type);
     }
 
     public CameraNode withPath(PathMode value) {
         return new CameraNode(this.world, this.x, this.y, this.z, this.yaw, this.pitch,
-                this.hold, this.duration, this.ease, value, this.command, this.title);
+                this.hold, this.duration, this.ease, value, this.command, this.title, this.type);
     }
 
     public CameraNode withCommand(String value) {
         return new CameraNode(this.world, this.x, this.y, this.z, this.yaw, this.pitch,
-                this.hold, this.duration, this.ease, this.path, value, this.title);
+                this.hold, this.duration, this.ease, this.path, value, this.title, this.type);
     }
 
     public CameraNode withTitle(NodeTitle value) {
         return new CameraNode(this.world, this.x, this.y, this.z, this.yaw, this.pitch,
                 this.hold, this.duration, this.ease, this.path, this.command,
-                value == null ? NodeTitle.EMPTY : value);
+                value == null ? NodeTitle.EMPTY : value, this.type);
+    }
+
+    public CameraNode withType(NodeType value) {
+        return new CameraNode(this.world, this.x, this.y, this.z, this.yaw, this.pitch,
+                this.hold, this.duration, this.ease, this.path, this.command, this.title,
+                value == null ? NodeType.DEFAULT : value);
     }
 
     public CameraNode withRotation(float newYaw, float newPitch) {
         return new CameraNode(this.world, this.x, this.y, this.z, newYaw, newPitch,
-                this.hold, this.duration, this.ease, this.path, this.command, this.title);
+                this.hold, this.duration, this.ease, this.path, this.command, this.title, this.type);
     }
 }
