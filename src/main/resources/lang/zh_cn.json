@@ -68,6 +68,8 @@
   "set.field-invalid": "<red>未知字段，可选: <white>duration, hold, ease, yaw, pitch, path, type, command, title, subtitle, title-fade-in, title-stay, title-fade-out</white></red>",
   "set.success": "<gray>节点 <yellow>#<index></yellow> 的 <white><field></white> 已更新。</gray>",
 
+  "play.loading": "<gray>轨道起点区块尚未加载，正在加载…（世界 <world>）</gray>",
+  "play.load-failed": "<red>无法加载轨道起点区块（世界 <world>），播放已取消。</red>",
   "play.too-few": "<red>轨道至少需要两个可播放节点才能形成镜头，当前只有 <yellow><count></yellow> 个。</red>",
   "play.invalid.bezier-only": "<red>这条轨道只有贝塞尔节点，无法播放。贝塞尔节点必须夹在两个默认节点之间。</red>",
   "play.invalid.bezier": "<red>贝塞尔节点 #<index> 的前一个节点必须是“默认”节点，后一个可以是“默认”或“切换”（不能位于轨道开头、不能与前一个切换相邻，也不能与另一个贝塞尔相邻）。</red>",

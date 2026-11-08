@@ -1,6 +1,7 @@
 package dev.cameratrack.playback;
 
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.ArmorStand;
@@ -32,10 +33,11 @@ final class SpectatorRig implements CameraRig {
     /** 身体跟随间隔：只为区块加载，间隔太大会让实体离开追踪范围。 */
     private static final int BODY_FOLLOW_TICKS = 10;
 
-    /** 刚附身时连续重发几次镜头包，避免实体尚未同步到客户端时被忽略。 */
-    private static final int REINFORCE_TICKS = 5;
+    /** 刚附身时持续重发相机包，覆盖“实体 spawn 包晚于相机包被客户端丢弃”的情况。 */
+    private static final int REINFORCE_TICKS = 20;
 
     private final String worldName;
+    private final PlaybackManager manager;
 
     private ArmorStand camera;
     private UUID cameraId;
@@ -43,8 +45,9 @@ final class SpectatorRig implements CameraRig {
     private int bodyTicks;
     private int reinforceTicks;
 
-    SpectatorRig(String worldName) {
+    SpectatorRig(String worldName, PlaybackManager manager) {
         this.worldName = worldName;
+        this.manager = manager;
     }
 
     @Override
@@ -56,10 +59,12 @@ final class SpectatorRig implements CameraRig {
         // 先把玩家身体送过去：区块加载好，实体才不会“生成即被卸载”
         player.teleport(new Location(world, pose.x(), pose.y(), pose.z()));
         ensureCamera(world, pose);
-        if (this.camera != null) {
-            player.setSpectatorTarget(this.camera);
-            this.reinforceTicks = REINFORCE_TICKS;
+        if (this.camera == null || this.camera.isDead()) {
+            // 让 PlaybackSession 感知失败并回退 TeleportRig，而不是静默留在无相机状态
+            throw new IllegalStateException("镜头实体所在区块尚未加载");
         }
+        player.setSpectatorTarget(this.camera);
+        this.reinforceTicks = REINFORCE_TICKS;
     }
 
     @Override
@@ -68,33 +73,71 @@ final class SpectatorRig implements CameraRig {
         if (world == null) {
             return;
         }
-        ensureCamera(world, pose);
-        if (this.camera != null && !this.camera.isDead()) {
-            this.camera.teleport(positionFor(pose, world));
 
-            Entity target = player.getSpectatorTarget();
-            boolean wrongTarget = target == null || !this.cameraId.equals(target.getUniqueId());
-            if (wrongTarget || this.reinforceTicks > 0) {
-                // 玩家按 shift / 客户端提前退出附身时立刻抢回来
-                player.setSpectatorTarget(this.camera);
-                if (this.reinforceTicks > 0) {
-                    this.reinforceTicks--;
-                }
+        if (this.camera == null || this.camera.isDead()) {
+            ensureCamera(world, pose);
+            if (this.camera != null) {
+                // 相机是“晚生成”的：客户端很可能还没收到实体 spawn 包，必须重发相机包
+                this.reinforceTicks = REINFORCE_TICKS;
             }
+        }
+
+        if (this.camera == null || this.camera.isDead()) {
+            // 区块仍未就绪：本体每 tick 跟着位姿走，至少不会是 10 tick 一跳
+            player.teleport(positionFor(pose, world));
+            return;
+        }
+
+        this.camera.teleport(positionFor(pose, world));
+
+        Entity target = player.getSpectatorTarget();
+        boolean wrongTarget = target == null || !this.cameraId.equals(target.getUniqueId());
+        if (wrongTarget) {
+            // 玩家按 shift / 客户端提前退出附身时立刻抢回来
+            player.setSpectatorTarget(this.camera);
+            target = player.getSpectatorTarget();
+            wrongTarget = target == null || !this.cameraId.equals(target.getUniqueId());
             if (wrongTarget) {
                 // 附身被其他插件拒绝/取消时的兜底：至少让玩家本人跟着镜头走
                 player.teleport(positionFor(pose, world));
             }
         }
 
+        if (this.reinforceTicks > 0) {
+            // 每 2 tick 强制做一次“停止旁观 → 重新旁观”，让服务端重新发相机包；
+            // 这是修复“客户端丢了唯一一次相机包后永不恢复”的关键兜底。
+            if (!wrongTarget && this.reinforceTicks % 2 == 0) {
+                reassertCamera(player);
+            }
+            this.reinforceTicks--;
+        }
+
         if (++this.bodyTicks >= BODY_FOLLOW_TICKS) {
             this.bodyTicks = 0;
             // 身体跟随只负责区块加载与实体追踪，不参与相机定位
             player.teleport(positionFor(pose, world));
-            // 周期性重申附身关系：即使客户端在本地退出了旁观目标，也能被拉回来
-            if (this.camera != null && !this.camera.isDead()) {
-                player.setSpectatorTarget(this.camera);
-            }
+        }
+    }
+
+    /**
+     * 强制重发相机实体：服务端 {@code ServerPlayer#setCamera} 只在相机实体变化时发包，
+     * 所以先切回自己、再切回镜头实体。期间由 {@link PlaybackManager} 放行“停止旁观”事件。
+     */
+    private void reassertCamera(Player player) {
+        if (this.camera == null || this.camera.isDead()) {
+            return;
+        }
+        if (player.getGameMode() != GameMode.SPECTATOR) {
+            return;
+        }
+        this.manager.beginCameraReset(player);
+        try {
+            player.setSpectatorTarget(null);
+            player.setSpectatorTarget(this.camera);
+        } catch (RuntimeException ignored) {
+            // 极少数情况下切换被拒绝；下一轮 reinforce 还会再试
+        } finally {
+            this.manager.endCameraReset(player);
         }
     }
 

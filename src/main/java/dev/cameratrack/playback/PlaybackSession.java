@@ -17,6 +17,9 @@ import java.util.UUID;
  */
 final class PlaybackSession {
 
+    /** 起点区块预加载的最长等待时间（10 秒）；超时则取消播放。 */
+    private static final long LOAD_TIMEOUT_TICKS = 200L;
+
     private final JavaPlugin plugin;
     private final PlaybackManager manager;
     private final UUID playerId;
@@ -31,9 +34,12 @@ final class PlaybackSession {
 
     private CameraRig rig;
     private BukkitTask task;
+    private BukkitTask loadTimeout;
     private int elapsedTicks;
     private int cuePointer;
     private boolean ended;
+    /** 是否真正开始播放（状态已保存、已切旁观、时间轴开始跑）。 */
+    private boolean started;
     /** 上一次应用位姿的时间，用于检测是否跨过“切换”节点。 */
     private double lastTime;
 
@@ -75,6 +81,71 @@ final class PlaybackSession {
         if (player == null || !player.isOnline()) {
             return;
         }
+        World world = Bukkit.getWorld(this.worldName);
+        if (world == null) {
+            failLoad("play.world-missing");
+            return;
+        }
+
+        Pose start = this.sampler.at(0.0D);
+        int chunkX = Location.locToBlock(start.x()) >> 4;
+        int chunkZ = Location.locToBlock(start.z()) >> 4;
+        if (world.isChunkLoaded(chunkX, chunkZ)) {
+            startNowSafely(player, start);
+            return;
+        }
+
+        // 起点区块未就绪：先异步加载，加载完成后再开始播放。
+        // 不能在这里直接 setSpectatorTarget——客户端可能还没收到实体 spawn 包而丢弃相机包。
+        this.manager.lang().send(player, "play.loading", "world", this.worldName);
+        this.loadTimeout = Bukkit.getScheduler().runTaskLater(this.plugin, () -> {
+            if (!this.ended && !this.started) {
+                failLoad("play.load-failed");
+            }
+        }, LOAD_TIMEOUT_TICKS);
+
+        try {
+            world.getChunkAtAsync(chunkX, chunkZ, true).whenComplete((chunk, error) -> {
+                if (!this.plugin.isEnabled()) {
+                    return;
+                }
+                Bukkit.getScheduler().runTask(this.plugin, () -> {
+                    if (this.ended || this.started) {
+                        return;
+                    }
+                    if (error != null || chunk == null) {
+                        failLoad("play.load-failed");
+                        return;
+                    }
+                    Player online = Bukkit.getPlayer(this.playerId);
+                    if (online == null || !online.isOnline()) {
+                        cancelNotStarted();
+                        return;
+                    }
+                    cancelLoadTimeout();
+                    startNowSafely(online, start);
+                });
+            });
+        } catch (RuntimeException exception) {
+            this.plugin.getLogger().warning("加载起点区块失败: " + exception.getMessage());
+            failLoad("play.load-failed");
+        }
+    }
+
+    private void startNowSafely(Player player, Pose start) {
+        try {
+            startNow(player, start);
+        } catch (RuntimeException exception) {
+            this.plugin.getLogger().log(java.util.logging.Level.SEVERE, "启动摄像播放失败", exception);
+            abort();
+        }
+    }
+
+    private void startNow(Player player, Pose start) {
+        if (this.ended || this.started) {
+            return;
+        }
+        cancelLoadTimeout();
 
         this.origin = player.getLocation().clone();
         this.previousMode = player.getGameMode();
@@ -83,6 +154,7 @@ final class PlaybackSession {
         this.previousInvulnerable = player.isMarkedInvulnerable();
         this.previousFlySpeed = player.getFlySpeed();
         this.previousWalkSpeed = player.getWalkSpeed();
+        this.started = true;
 
         if (this.origin.getWorld() != null) {
             this.manager.pendingReturns().remember(this.playerId, new PendingReturn(
@@ -102,12 +174,15 @@ final class PlaybackSession {
         player.setFlySpeed(0.0F);
         player.setWalkSpeed(0.0F);
 
-        Pose start = this.sampler.at(0.0D);
         this.rig = createRig();
+        boolean attached = true;
         try {
             this.rig.attach(player, start);
         } catch (RuntimeException exception) {
+            attached = false;
             this.plugin.getLogger().warning("实体运镜初始化失败，回退到逐 tick 传送模式: " + exception.getMessage());
+        }
+        if (!attached) {
             try {
                 this.rig.abort();
             } catch (RuntimeException ignored) {
@@ -123,11 +198,33 @@ final class PlaybackSession {
         this.task = Bukkit.getScheduler().runTaskTimer(this.plugin, this::tick, 1L, 1L);
     }
 
+    private void failLoad(String key) {
+        Player player = Bukkit.getPlayer(this.playerId);
+        if (player != null && player.isOnline()) {
+            this.manager.lang().send(player, key, "world", this.worldName);
+        }
+        cancelNotStarted();
+    }
+
+    /** 预加载阶段取消：玩家状态尚未改变，只需要注销会话。 */
+    private void cancelNotStarted() {
+        this.ended = true;
+        cancelLoadTimeout();
+        this.manager.finished(this);
+    }
+
+    private void cancelLoadTimeout() {
+        if (this.loadTimeout != null) {
+            this.loadTimeout.cancel();
+            this.loadTimeout = null;
+        }
+    }
+
     private CameraRig createRig() {
         if (this.mode == PlaybackMode.PLAYER_TELEPORT) {
             return new TeleportRig(this.worldName);
         }
-        return new SpectatorRig(this.worldName);
+        return new SpectatorRig(this.worldName, this.manager);
     }
 
     private void tick() {
@@ -212,11 +309,16 @@ final class PlaybackSession {
             return;
         }
         this.ended = true;
+        cancelLoadTimeout();
         if (this.task != null) {
             this.task.cancel();
             this.task = null;
         }
         this.manager.finished(this);
+        if (!this.started) {
+            // 预加载阶段就被取消：玩家状态从未改变过，不需要恢复
+            return;
+        }
         this.manager.pendingReturns().remove(this.playerId);
 
         Player player = Bukkit.getPlayer(this.playerId);
@@ -242,11 +344,16 @@ final class PlaybackSession {
             return;
         }
         this.ended = true;
+        cancelLoadTimeout();
         if (this.task != null) {
             this.task.cancel();
             this.task = null;
         }
         this.manager.finished(this);
+        if (!this.started) {
+            // 预加载阶段下线：玩家状态尚未改变
+            return;
+        }
 
         Player player = Bukkit.getPlayer(this.playerId);
         if (player != null && player.isOnline()) {

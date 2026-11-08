@@ -22,7 +22,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -41,6 +43,8 @@ public final class PlaybackManager implements Listener {
     private final PendingReturns pendingReturns;
     private final Lang lang;
     private final Map<UUID, PlaybackSession> sessions = new HashMap<>();
+    /** 这些玩家当前正在被插件主动重发相机包，期间允许“停止旁观”事件通过。 */
+    private final Set<UUID> cameraResets = new HashSet<>();
 
     public PlaybackManager(JavaPlugin plugin, TrackStore store, double axisTolerance,
                            double arcStrength, boolean autoArc,
@@ -68,6 +72,19 @@ public final class PlaybackManager implements Listener {
 
     public boolean autoArc() {
         return this.autoArc;
+    }
+
+    public Lang lang() {
+        return this.lang;
+    }
+
+    /** 允许本次“停止旁观 → 重新旁观”通过，用于强制客户端重新接收相机实体。 */
+    void beginCameraReset(Player player) {
+        this.cameraResets.add(player.getUniqueId());
+    }
+
+    void endCameraReset(Player player) {
+        this.cameraResets.remove(player.getUniqueId());
     }
 
     public boolean isPlaying(Player player) {
@@ -119,6 +136,7 @@ public final class PlaybackManager implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        this.cameraResets.remove(event.getPlayer().getUniqueId());
         PlaybackSession session = this.sessions.remove(event.getPlayer().getUniqueId());
         if (session != null) {
             session.abort();
@@ -157,9 +175,12 @@ public final class PlaybackManager implements Listener {
         }
     }
 
-    /** 双保险：即使客户端/其他插件试图取消附身，也拒绝。 */
+    /** 双保险：即使客户端/其他插件试图取消附身，也拒绝；插件自己重发相机包时放行。 */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onStopSpectating(PlayerStopSpectatingEntityEvent event) {
+        if (this.cameraResets.contains(event.getPlayer().getUniqueId())) {
+            return;
+        }
         if (isPlaying(event.getPlayer())
                 && event.getSpectatorTarget() != null
                 && event.getSpectatorTarget().getScoreboardTags().contains(SpectatorRig.TAG)) {
