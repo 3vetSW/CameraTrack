@@ -49,8 +49,11 @@ public final class TrackValidator {
                 continue;
             }
             boolean previousDefault = i > 0 && nodes.get(i - 1).type() == NodeType.DEFAULT;
-            boolean nextDefault = i + 1 < nodes.size() && nodes.get(i + 1).type() == NodeType.DEFAULT;
-            if (!previousDefault || !nextDefault) {
+            // 终点可以是“切换”：曲线照常算到切换节点，再由它硬切到下一个节点
+            boolean nextPlayable = i + 1 < nodes.size()
+                    && (nodes.get(i + 1).type() == NodeType.DEFAULT
+                    || nodes.get(i + 1).type() == NodeType.CUT);
+            if (!previousDefault || !nextPlayable) {
                 return new Problem("play.invalid.bezier", i + 1);
             }
         }

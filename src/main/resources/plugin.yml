@@ -1,5 +1,5 @@
 name: CameraTrack
-version: '1.12.0'
+version: '1.12.1'
 main: dev.cameratrack.CameraTrackPlugin
 api-version: '26.3'
 description: 自定义摄像轨道 —— 用指令铺设镜头节点，自动平滑连接，并在游戏中播放开场动画级别的运镜。

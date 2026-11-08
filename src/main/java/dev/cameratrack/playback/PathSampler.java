@@ -130,9 +130,8 @@ public final class PathSampler {
         }
         for (int i = 0; i < count; i++) {
             CameraNode node = this.nodes.get(i);
-            boolean afterCut = i > 0 && this.nodes.get(i - 1).type() == NodeType.CUT;
             boolean stop = i == 0 || i == count - 1 || node.hold() > 1.0E-9D
-                    || node.type() == NodeType.CUT || afterCut;
+                    || node.type() == NodeType.CUT;
             if (stop) {
                 continue;
             }

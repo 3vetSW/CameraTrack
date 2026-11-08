@@ -70,7 +70,7 @@
 
   "play.too-few": "<red>A track needs at least two playable nodes; this one has <yellow><count></yellow>.</red>",
   "play.invalid.bezier-only": "<red>This track contains only Bezier nodes and cannot be played. A Bezier node must sit between two default nodes.</red>",
-  "play.invalid.bezier": "<red>Bezier node #<index> must have a default node immediately before and after it (not at either end, not next to a cut node, and not adjacent to another Bezier node).</red>",
+  "play.invalid.bezier": "<red>Bezier node #<index> must have a default node immediately before it; the node after it may be default or cut (not at the start, not after a cut node, and not adjacent to another Bezier node).</red>",
   "play.speed-range": "<red>Speed must be between 0.1 and 20.</red>",
   "play.world-missing": "<red>World <yellow><world></yellow> is not loaded.</red>",
   "play.failed": "<red>Could not start playback.</red>",
