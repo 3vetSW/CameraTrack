@@ -5,6 +5,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -74,6 +75,11 @@ final class PlaybackSession {
 
     PlaybackMode mode() {
         return this.mode;
+    }
+
+    /** 当前会话的镜头实体（TeleportRig 没有实体，返回 false）。 */
+    boolean isCamera(Entity entity) {
+        return this.rig != null && this.rig.isCamera(entity);
     }
 
     void begin() {

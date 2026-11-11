@@ -1,5 +1,6 @@
 package dev.cameratrack.playback;
 
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
 /**
@@ -21,6 +22,9 @@ public interface CameraRig {
 
     /** 正常结束：先解除镜头控制，再由会话恢复玩家状态。 */
     void detach(Player player);
+
+    /** 这个实体是否就是本会话的镜头实体（用于拒绝旁观者切到别的实体）。 */
+    boolean isCamera(Entity entity);
 
     /** 玩家已离线 / 插件卸载：只清理世界中的临时对象。 */
     void abort();

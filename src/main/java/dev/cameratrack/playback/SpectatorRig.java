@@ -4,6 +4,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
@@ -36,6 +38,9 @@ final class SpectatorRig implements CameraRig {
     /** 刚附身时持续重发相机包，覆盖“实体 spawn 包晚于相机包被客户端丢弃”的情况。 */
     private static final int REINFORCE_TICKS = 20;
 
+    /** 盔甲架缩到尽可能小；相机位置按实际 eyeHeight 反推，仍精确落在轨道位姿上。 */
+    private static final double MIN_SCALE = 0.0625D;
+
     private final String worldName;
     private final PlaybackManager manager;
 
@@ -58,12 +63,16 @@ final class SpectatorRig implements CameraRig {
         }
         // 先把玩家身体送过去：区块加载好，实体才不会“生成即被卸载”
         player.teleport(new Location(world, pose.x(), pose.y(), pose.z()));
-        ensureCamera(world, pose);
+        ensureCamera(world, pose, player);
         if (this.camera == null || this.camera.isDead()) {
             // 让 PlaybackSession 感知失败并回退 TeleportRig，而不是静默留在无相机状态
             throw new IllegalStateException("镜头实体所在区块尚未加载");
         }
         player.setSpectatorTarget(this.camera);
+        Entity target = player.getSpectatorTarget();
+        if (target == null || !this.cameraId.equals(target.getUniqueId())) {
+            throw new IllegalStateException("无法附身镜头实体");
+        }
         this.reinforceTicks = REINFORCE_TICKS;
     }
 
@@ -75,7 +84,7 @@ final class SpectatorRig implements CameraRig {
         }
 
         if (this.camera == null || this.camera.isDead()) {
-            ensureCamera(world, pose);
+            ensureCamera(world, pose, player);
             if (this.camera != null) {
                 // 相机是“晚生成”的：客户端很可能还没收到实体 spawn 包，必须重发相机包
                 this.reinforceTicks = REINFORCE_TICKS;
@@ -150,9 +159,11 @@ final class SpectatorRig implements CameraRig {
         // 身体先到目标位置：保证目标区块已加载，新实体不会生成即被卸载
         player.teleport(new Location(world, pose.x(), pose.y(), pose.z()));
         ArmorStand previous = this.camera;
+        UUID previousId = this.cameraId;
+        double previousEye = this.eyeOffset;
         ArmorStand fresh;
         try {
-            fresh = spawnCamera(world, pose);
+            fresh = spawnCamera(world, pose, player);
         } catch (RuntimeException exception) {
             // 保护插件拒绝生成时退回普通跟随（不硬切，但至少继续播放）
             apply(player, pose);
@@ -163,18 +174,22 @@ final class SpectatorRig implements CameraRig {
             apply(player, pose);
             return;
         }
-        // 先让玩家旁观新实体，再移除旧实体，避免中间出现一帧自己的视角
+        // 先切字段再 setSpectatorTarget：PlayerStartSpectatingEntityEvent 会检查
+        // “新目标是不是本会话的相机”，字段此时必须已经是 fresh
+        this.camera = fresh;
+        this.cameraId = fresh.getUniqueId();
+        this.eyeOffset = fresh.getEyeHeight();
         player.setSpectatorTarget(fresh);
         Entity target = player.getSpectatorTarget();
         if (target == null || !fresh.getUniqueId().equals(target.getUniqueId())) {
-            // 其他插件拒绝了附身切换：清理新实体，保持原来的跟随逻辑
+            // 其他插件拒绝了附身切换：还原字段、清理新实体，保持原来的跟随逻辑
+            this.camera = previous;
+            this.cameraId = previousId;
+            this.eyeOffset = previousEye;
             fresh.remove();
             apply(player, pose);
             return;
         }
-        this.camera = fresh;
-        this.cameraId = fresh.getUniqueId();
-        this.eyeOffset = fresh.getEyeHeight();
         this.reinforceTicks = REINFORCE_TICKS;
         if (previous != null && previous != fresh && !previous.isDead()) {
             previous.remove();
@@ -195,11 +210,16 @@ final class SpectatorRig implements CameraRig {
         removeCamera();
     }
 
-    private void ensureCamera(World world, Pose pose) {
+    @Override
+    public boolean isCamera(Entity entity) {
+        return entity != null && this.cameraId != null && this.cameraId.equals(entity.getUniqueId());
+    }
+
+    private void ensureCamera(World world, Pose pose, Player player) {
         if (this.camera != null && !this.camera.isDead()) {
             return;
         }
-        ArmorStand stand = spawnCamera(world, pose);
+        ArmorStand stand = spawnCamera(world, pose, player);
         if (stand == null) {
             return;
         }
@@ -209,7 +229,7 @@ final class SpectatorRig implements CameraRig {
     }
 
     /** 在世界中生成一个新的镜头实体；区块未加载或生成失败时返回 null。 */
-    private ArmorStand spawnCamera(World world, Pose pose) {
+    private ArmorStand spawnCamera(World world, Pose pose, Player owner) {
         int chunkX = Location.locToBlock(pose.x()) >> 4;
         int chunkZ = Location.locToBlock(pose.z()) >> 4;
         if (!world.isChunkLoaded(chunkX, chunkZ)) {
@@ -227,20 +247,38 @@ final class SpectatorRig implements CameraRig {
             entity.setPersistent(false);
             entity.setArms(false);
             entity.setBasePlate(false);
-            entity.setSmall(false);
+            entity.setSmall(true);
             entity.setCustomNameVisible(false);
+            // 默认对所有玩家不可见，只对正在运镜的玩家单独 showEntity；
+            // 这样多个玩家同时播放时互相看不到对方的镜头实体。
+            entity.setVisibleByDefault(false);
+            AttributeInstance scale = entity.getAttribute(Attribute.SCALE);
+            if (scale != null) {
+                scale.setBaseValue(MIN_SCALE);
+            }
             entity.addScoreboardTag(TAG);
         });
         if (stand == null) {
             throw new IllegalStateException("服务器或保护插件阻止了镜头实体生成");
         }
-        stand.teleport(positionFor(pose, world));
+        // 先按实际 eyeHeight 放到最终位置，再让客户端收到 spawn，避免生成后瞬移一帧
+        stand.teleport(positionFor(pose, world, stand.getEyeHeight()));
+        owner.showEntity(this.manager.plugin(), stand);
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (!online.getUniqueId().equals(owner.getUniqueId())) {
+                online.hideEntity(this.manager.plugin(), stand);
+            }
+        }
         return stand;
     }
 
     private Location positionFor(Pose pose, World world) {
+        return positionFor(pose, world, this.eyeOffset);
+    }
+
+    private static Location positionFor(Pose pose, World world, double eyeOffset) {
         Location location = pose.toLocation(world);
-        location.setY(location.getY() - this.eyeOffset);
+        location.setY(location.getY() - eyeOffset);
         return location;
     }
 

@@ -1,5 +1,6 @@
 package dev.cameratrack.playback;
 
+import com.destroystokyo.paper.event.player.PlayerStartSpectatingEntityEvent;
 import com.destroystokyo.paper.event.player.PlayerStopSpectatingEntityEvent;
 import dev.cameratrack.lang.Lang;
 import dev.cameratrack.track.CameraTrack;
@@ -76,6 +77,10 @@ public final class PlaybackManager implements Listener {
 
     public Lang lang() {
         return this.lang;
+    }
+
+    public JavaPlugin plugin() {
+        return this.plugin;
     }
 
     /** 允许本次“停止旁观 → 重新旁观”通过，用于强制客户端重新接收相机实体。 */
@@ -171,6 +176,21 @@ public final class PlaybackManager implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onSneak(PlayerToggleSneakEvent event) {
         if (event.isSneaking() && isPlaying(event.getPlayer())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * 阻止播放中的玩家使用观察者“传送/旁观其他实体”功能：
+     * 只允许附身本会话的镜头实体，切到其他玩家/实体会被取消（服务端会保留原相机）。
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onStartSpectating(PlayerStartSpectatingEntityEvent event) {
+        PlaybackSession session = this.sessions.get(event.getPlayer().getUniqueId());
+        if (session == null) {
+            return;
+        }
+        if (!session.isCamera(event.getNewSpectatorTarget())) {
             event.setCancelled(true);
         }
     }

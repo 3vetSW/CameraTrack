@@ -69,6 +69,11 @@ final class TeleportRig implements CameraRig {
     }
 
     @Override
+    public boolean isCamera(org.bukkit.entity.Entity entity) {
+        return false;
+    }
+
+    @Override
     public void abort() {
         // 无额外状态
     }
