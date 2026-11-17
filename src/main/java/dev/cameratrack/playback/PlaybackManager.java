@@ -18,6 +18,7 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -176,6 +177,19 @@ public final class PlaybackManager implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onSneak(PlayerToggleSneakEvent event) {
         if (event.isSneaking() && isPlaying(event.getPlayer())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * 观察者菜单“传送到玩家”实际上发送的是 {@code ServerboundTeleportToEntityPacket}，
+     * 服务端执行 {@code ServerPlayer#teleportTo(..., SPECTATE)} ——不会改相机，而是把**玩家本体**
+     * 传送到目标身边；本体被拉走后再被身体跟随拉回来，就会来回抽搐并刷 moved too quickly。
+     * 因此必须在传送事件阶段按 SPECTATE 原因取消，而不是只拦旁观目标切换。
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onSpectatorTeleport(PlayerTeleportEvent event) {
+        if (event.getCause() == PlayerTeleportEvent.TeleportCause.SPECTATE && isPlaying(event.getPlayer())) {
             event.setCancelled(true);
         }
     }

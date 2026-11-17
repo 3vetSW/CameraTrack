@@ -43,6 +43,10 @@ final class PlaybackSession {
     private boolean started;
     /** 上一次应用位姿的时间，用于检测是否跨过“切换”节点。 */
     private double lastTime;
+    /** 已应用终点位姿，剩余显示 tick 数；归零后结束。 */
+    private int finishTicks;
+    /** 循环模式已应用终点位姿，下一 tick 回到起点。 */
+    private boolean wrapPending;
 
     private Location origin;
     private GameMode previousMode;
@@ -256,19 +260,38 @@ final class PlaybackSession {
 
         this.elapsedTicks++;
         double time = this.elapsedTicks / 20.0D * this.speed;
-        boolean wrapped = false;
-        if (time >= total) {
-            if (this.loop) {
-                time = time % total;
-                this.cuePointer = 0;
-                wrapped = true;
-            } else {
+        if (this.finishTicks > 0) {
+            // 终点帧已经应用，再保留 2 tick 让客户端有时间收到最后一个相机实体/位置
+            this.finishTicks--;
+            if (this.finishTicks == 0) {
                 end(!this.stay);
-                return;
+            }
+            return;
+        }
+        if (this.wrapPending) {
+            // 循环模式：终点帧已经显示过，下一 tick 再回到起点，避免最后一个节点被跳过
+            this.wrapPending = false;
+            this.elapsedTicks = 0;
+            this.cuePointer = 0;
+            this.lastTime = -1.0D;
+            fireCues(player, 0.0D);
+            this.rig.snap(player, this.sampler.at(0.0D));
+            this.lastTime = 0.0D;
+            return;
+        }
+        if (time >= total) {
+            // 先应用总时长处的位姿，再结束：最后一个节点是“切换”目标且 hold=0 时，
+            // 它的开始时间正好等于 total，旧逻辑会在应用它之前直接 end，导致播放停在
+            // 倒数第二个（切换）节点上。
+            time = total;
+            if (this.loop) {
+                this.wrapPending = true;
+            } else {
+                this.finishTicks = 2;
             }
         }
 
-        boolean snap = wrapped || this.sampler.crossesCut(this.lastTime, time);
+        boolean snap = this.sampler.crossesCut(this.lastTime, time);
         fireCues(player, time);
         Pose pose = this.sampler.at(time);
         if (snap) {
